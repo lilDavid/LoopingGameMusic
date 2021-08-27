@@ -16,6 +16,9 @@ import soundfile as sf
 from audio_metadata.exceptions import UnsupportedFormat
 
 
+volume: float = 1.0
+
+
 class LoopData(NamedTuple):
     start: int
     end: int
@@ -326,7 +329,7 @@ class SongLoop(ABC):
             raise sd.CallbackAbort
         assert not status
         try:
-            data = self._mix_data(self._dataqueue.get_nowait())
+            data = self._mix_data(self._dataqueue.get_nowait()) * volume
         except q.Empty as e:
             print('Buffer is empty: increase buffersize?', file=sys.stderr)
             raise sd.CallbackAbort from e
@@ -348,7 +351,7 @@ class SongLoop(ABC):
         ...
     
     @abstractmethod
-    def _mix_data(self, data):
+    def _mix_data(self, data) -> np.ndarray:
         ...
 
 

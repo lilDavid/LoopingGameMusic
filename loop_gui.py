@@ -1,6 +1,4 @@
-#!/usr/bin/env python3
 
-import asyncio
 import json
 import os.path
 import sys
@@ -9,16 +7,15 @@ import tkinter.filedialog
 import tkinter.messagebox
 from tkinter import ttk
 from typing import Sequence, Tuple
+import loopaudio as la
 
 from get_brstm import SongVariantURL, TitledSongInfo, get_brstms
-from loop import PlaytimeUpdate
-from loopaudio import SongLoop, open_loops
 
 
-class UpdaterProgressBar(PlaytimeUpdate):
+class UpdaterProgressBar():
 
-    def __init__(self, song: SongLoop, progressbar: ttk.Progressbar):
-        super().__init__(song)
+    def __init__(self, song: la.SongLoop, progressbar: ttk.Progressbar):
+        self.song = song
         self.bar = progressbar
 
     def start(self):
@@ -56,13 +53,39 @@ class LoopGUI:
 
         self._build_variants_layers(master, 2)
 
+        # Volume
+        volume_panel = tk.Frame(master)
+        
+        self.volume = tk.DoubleVar(value=1.0)
+        volpercent = tk.StringVar()
+        def set_volume(_):
+            la.volume = self.volume.get()
+            volpercent.set(f'Volume: {la.volume:3.0%}')
+        set_volume(None)
+        
+        tk.Label(
+            volume_panel,
+            textvariable=volpercent
+        ).grid(row=0, column=0, sticky='E')
+
+        ttk.Scale(
+            volume_panel,
+            from_=0,
+            to=1.0,
+            orient='horizontal',
+            variable=self.volume,
+            command=set_volume
+        ).grid(row=0, column=1, sticky='EW')
+        volume_panel.columnconfigure(1, weight=1)
+        volume_panel.grid(row=5, columnspan=2, sticky='EW')
+
         # BRSTM downloader
         def open_importer():
             tkinter.messagebox.showerror('Not implemented', 'SmashCustomMusic import GUI not yet working')
             # new_window = tk.Toplevel(self.master)
             # SCMImportGUI(new_window)
         ttk.Button(master, text="Import files from SmashCustomMusic archive...",
-                   command=open_importer).grid(row=5, columnspan=2, sticky="SE")
+                   command=open_importer).grid(row=6, columnspan=2, sticky="SE")
 
         master.rowconfigure(2, weight=1)
         master.columnconfigure(0, weight=1, uniform='a')
@@ -123,14 +146,14 @@ class LoopGUI:
     def load(self):
         input_file = self.input_filename.get()
 
-        def play_song(song: SongLoop):
+        def play_song(song: la.SongLoop):
             return lambda: self.play_loop(song)
         
         for widget in self.song_panel.winfo_children():
             widget.destroy()
 
         self.songs = []
-        for song in open_loops(input_file, lambda file, *_: tkinter.messagebox.showerror(
+        for song in la.open_loops(input_file, lambda file, *_: tkinter.messagebox.showerror(
                 "Could not open file", f"File '{file}' does not exist")):
             song_record = {
                 "name": song.name,
@@ -144,7 +167,7 @@ class LoopGUI:
             song_record["button"].pack(side=tk.LEFT)
             self.song_panel.pack()
 
-    def play_loop(self, song: SongLoop):
+    def play_loop(self, song: la.SongLoop):
         try:
             try:
                 self.song.stop()

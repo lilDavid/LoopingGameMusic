@@ -1,10 +1,11 @@
 # Test files; I shouldn't need more than these to test
-loops/*
-oggs/*
+loops/**
+oggs/**
 
-# IDE/FS internals
-.vscode/*
+# Internals
+.vscode/**
 **/.DS_Store
+__pycache__/**
 
 # Old versions that will be removed from the original computer soon
 loop.py
