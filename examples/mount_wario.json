@@ -1,0 +1,36 @@
+[
+	{
+		"version": 2,
+		"name": "Section 1",
+		"filename": "mount_wario_1.ogg",
+		"variants": {
+			"Main track": 0
+		},
+		"layers": {
+			"Frontrunning": 1
+		}
+	},
+	{
+		"version": 2,
+		"name": "Section 2",
+		"filename": "mount_wario_2.ogg",
+		"variants": {
+			"Cave": 0,
+			"Forest": 2
+		},
+		"layers": {
+			"Frontrunning": 1
+		}
+	},
+	{
+		"version": 2,
+		"name": "Section 3",
+		"filename": "mount_wario_3.ogg",
+		"variants": {
+			"Main track": 0
+		},
+		"layers": {
+			"Frontrunning": 1
+		}
+	}
+]

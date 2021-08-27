@@ -1,0 +1,34 @@
+[
+	{
+		"version": 2,
+		"name": "Normal",
+		"filename": "dolphin_shoals_n.ogg",
+		"variants": {
+			"Shallow water": 0,
+			"Deep water": 2,
+			"Above water": 3
+		},
+		"layers": {
+			"Frontrunning": 1
+		}
+	},
+	{
+		"version": 2,
+		"name": "Final lap",
+		"filename": "dolphin_shoals_f.ogg",
+		"variants": {
+			"Main track": 0
+		},
+		"layers": {
+			"Frontrunning": 1
+		}
+	},
+	{
+		"version": 2,
+		"name": "Highlight Reel",
+		"filename": "dolphin_shoals_h.ogg",
+		"variants": {
+			"Main track": 0
+		}
+	}
+]
