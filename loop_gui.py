@@ -1,4 +1,3 @@
-
 import json
 import os.path
 import sys
@@ -9,7 +8,7 @@ from tkinter import ttk
 from typing import Sequence, Tuple
 import loopaudio as la
 
-from get_brstm import SongVariantURL, TitledSongInfo, get_brstms
+from get_brstm import SongVariantURL, SongInfo, get_brstms
 
 
 class UpdaterProgressBar():
@@ -81,9 +80,8 @@ class LoopGUI:
 
         # BRSTM downloader
         def open_importer():
-            tkinter.messagebox.showerror('Not implemented', 'SmashCustomMusic import GUI not yet working')
-            # new_window = tk.Toplevel(self.master)
-            # SCMImportGUI(new_window)
+            new_window = tk.Toplevel(self.master)
+            SCMImportGUI(new_window)
         ttk.Button(master, text="Import files from SmashCustomMusic archive...",
                    command=open_importer).grid(row=6, columnspan=2, sticky="SE")
 
@@ -233,27 +231,27 @@ class SCMImportGUI:
 
         self._build_file_panel(master)
 
-        self.variant_sets = []
-        self.set_ui = ttk.Notebook(master)
-        self.set_ui.grid(row=1, sticky="NSEW")
+        self.parts = []
+        self.part_ui = ttk.Notebook(master)
+        self.part_ui.grid(row=1, sticky="NSEW")
 
-        manage = tk.Frame(self.set_ui)
+        manage = tk.Frame(self.part_ui)
         tk.Label(
             manage,
-            text="Variant sets make up their own loops. Each has its own variants and layers."
+            text="Each part is a separate loop with its own variants and layers."
         ).pack(side="top")
-        self.add_set_button = ttk.Button(manage, text="Add variant set", command=self.add_set)
-        self.add_set_button.pack(side="top")
-        self.remove_set_button = ttk.Button(
+        self.add_part_button = ttk.Button(manage, text="Add new part", command=self.add_part)
+        self.add_part_button.pack(side="top")
+        self.remove_part_button = ttk.Button(
             manage, default="disabled",
-            text="Remove variant set",
-            command=self.remove_set
+            text="Remove last part",
+            command=self.remove_part
         )
-        self.remove_set_button.pack(side="top")
+        self.remove_part_button.pack(side="top")
         manage.grid(row=0)
-        self.set_ui.add(manage, text="Manage variant sets")
-        self.add_set()
-        self.set_ui.select(1)
+        self.part_ui.add(manage, text="Manage parts")
+        self.add_part()
+        self.part_ui.select(1)
 
         master.rowconfigure(1, weight=1)
         master.columnconfigure(0, weight=1)
@@ -277,8 +275,55 @@ class SCMImportGUI:
         file_field.columnconfigure(1, weight=1)
         file_field.grid(row=0, sticky="EW")
 
-        ttk.Button(file_panel, text="Start conversion",
-                   command=self.start_conversion).grid(row=2, sticky="E")
+        conversion_start = tk.Frame(file_panel)
+
+        self.use_json = tk.IntVar(conversion_start)
+        json_btn = ttk.Checkbutton(
+            conversion_start,
+            text='Use JSON',
+            offvalue=False,
+            onvalue=True,
+            variable=self.use_json
+        )
+        json_btn.grid(row=0, column=3, sticky='W', ipadx=10)
+        self.use_json.set(True)
+
+        self.file_type = tk.StringVar(conversion_start)
+        def set_not_wav():
+            json_btn.state(['!disabled'])
+        def set_wav():
+            self.use_json.set(True)
+            json_btn.state(['disabled'])
+        ttk.Radiobutton(
+            conversion_start,
+            variable=self.file_type,
+            value='ogg',
+            text='OGG',
+            command=set_not_wav
+        ).grid(row=0, column=0, sticky='W', ipadx=5)
+        ttk.Radiobutton(
+            conversion_start,
+            variable=self.file_type,
+            value='flac',
+            text='FLAC',
+            command=set_not_wav
+        ).grid(row=0, column=1, sticky='W', ipadx=5)
+        ttk.Radiobutton(
+            conversion_start,
+            variable=self.file_type,
+            value='wav',
+            text='WAV',
+            command=set_wav
+        ).grid(row=0, column=2, sticky='W', ipadx=5)
+        self.file_type.set('ogg')
+
+        ttk.Button(
+            conversion_start,
+            text="Start conversion",
+            command=self.start_conversion
+        ).grid(row=0, column=4, sticky='E')
+        conversion_start.columnconfigure(3, weight=1)
+        conversion_start.grid(row=1, sticky="EW")
 
         file_panel.columnconfigure(0, weight=1)
         file_panel.grid(row=0, sticky="NSEW")
@@ -286,10 +331,10 @@ class SCMImportGUI:
     def start_conversion(self):
         file = get_brstms(
             os.path.splitext(self.file_name.get())[0],
-            [varset.create_song_info() for varset in self.variant_sets],
+            [part.create_song_info() for part in self.parts],
             None,
             lambda e, file: tkinter.messagebox.showerror(
-                "Download error", "Could not download file: " + file + "\n" + e)
+                "Download error", "Could not download file: " + file + "\n" + str(e))
         )
         json.dump(
             file,
@@ -297,22 +342,22 @@ class SCMImportGUI:
         )
         tkinter.messagebox.showinfo(message="Loop created!")
     
-    def add_set(self):
-        setui = VariantSetUI(self.set_ui, row=0, nb=self.set_ui, index=len(self.variant_sets))
-        self.variant_sets.append(setui)
-        self.set_ui.add(setui.panel, text="<untitled>")
-        self.remove_set_button.state(
-            ["!disabled"] if len(self.variant_sets) > 1 else ["disabled"])
+    def add_part(self):
+        partui = SongPartUI(self.part_ui, row=0, nb=self.part_ui, index=len(self.parts))
+        self.parts.append(partui)
+        self.part_ui.add(partui.panel, text="<untitled>")
+        self.remove_part_button.state(
+            ["!disabled"] if len(self.parts) > 1 else ["disabled"])
     
-    def remove_set(self):
-        setui = self.variant_sets[-1]
-        self.variant_sets.pop()
-        setui.panel.destroy()
-        self.remove_set_button.state(["!disabled"] if len(
-            self.variant_sets) > 1 else ["disabled"])
+    def remove_part(self):
+        partui = self.parts[-1]
+        self.parts.pop()
+        partui.panel.destroy()
+        self.remove_part_button.state(["!disabled"] if len(
+            self.parts) > 1 else ["disabled"])
 
 
-class VariantSetUI:
+class SongPartUI:
 
     def __init__(self, master, row, nb: ttk.Notebook, index: int):
         self.panel = tk.Frame(master)
@@ -322,17 +367,21 @@ class VariantSetUI:
         tk.Label(name_panel, text="Title:").grid(row=0, column=0)
         tk.Entry(name_panel, textvariable=self.title).grid(
             row=0, column=1, sticky="EW")
-        name_panel.columnconfigure(1, weight=1)
         name_panel.grid(row=0, sticky="EW")
 
         def set_widget_name(*_):
             nb.tab(index + 1, text = self.short_name.get() or "<untitled>")
 
         self.short_name = tk.StringVar(self.panel)
-        tk.Label(name_panel, text="Short name:").grid(row=1, column=0)
+        tk.Label(name_panel, text="Part name:").grid(row=1, column=0)
         name_entry = tk.Entry(name_panel, textvariable=self.short_name)
         name_entry.bind("<FocusOut>", set_widget_name)
         name_entry.grid(row=1, column=1, sticky="EW")
+
+        self.filename = tk.StringVar(self.panel)
+        tk.Label(name_panel, text="Filename:").grid(row=2, column=0)
+        tk.Entry(name_panel, textvariable=self.filename).grid(row=2, column=1, sticky='EW')
+
         name_panel.columnconfigure(1, weight=1)
 
         self.variant_panel = tk.LabelFrame(self.panel, text="Variants")
@@ -361,7 +410,7 @@ class VariantSetUI:
 
         self.variant_panel.columnconfigure(0, weight=1)
         self.variant_panel.columnconfigure(1, weight=1)
-        self.variant_panel.grid(row=2, sticky="NSEW")
+        self.variant_panel.grid(row=3, sticky="NSEW")
 
         self.layer_panel = tk.LabelFrame(self.panel, text="Layers")
         self.layers = []
@@ -387,10 +436,10 @@ class VariantSetUI:
 
         self.layer_panel.columnconfigure(0, weight=1)
         self.layer_panel.columnconfigure(1, weight=1)
-        self.layer_panel.grid(row=3, sticky="NSEW")
+        self.layer_panel.grid(row=4, sticky="NSEW")
 
-        self.panel.rowconfigure(2, weight=1)
         self.panel.rowconfigure(3, weight=1)
+        self.panel.rowconfigure(4, weight=1)
         self.panel.columnconfigure(0, weight=1)
         self.panel.grid(row=row, sticky="NSEW")
     
@@ -442,12 +491,13 @@ class VariantSetUI:
     def get_layers(self) -> Sequence[Tuple]:
         return [(lay[0].get(), lay[1].get()) for lay in self.layers]
     
-    def create_song_info(self) -> TitledSongInfo:
-        return TitledSongInfo(
+    def create_song_info(self) -> SongInfo:
+        return SongInfo(
             self.short_name.get(),
             self.title.get(),
-            [SongVariantURL("-" + var[0] if var[0] else "", var[1]) for var in self.get_variants()],
-            [SongVariantURL("-" + lay[0], lay[1]) for lay in self.get_layers()]
+            self.filename.get(),
+            [SongVariantURL(var[0], var[1]) for var in self.get_variants()],
+            [SongVariantURL(lay[0], lay[1]) for lay in self.get_layers()]
         )
 
 

@@ -2,27 +2,34 @@ import json
 import locale
 import os
 import sys
-from collections import namedtuple
 from collections.abc import Sequence
-from typing import Callable, Union
+from typing import Callable, Iterable, NamedTuple, Union
 
 import ffmpeg
+import mutagen
+import numpy as np
 import requests
+import soundfile as sf
 from bs4 import BeautifulSoup
 from requests import HTTPError
 
-SongVariantURL = namedtuple('SongVariantURL', ['name', 'url'])
+
+class SongVariantURL(NamedTuple):
+    name: str
+    url: str
 
 
-NamedSongInfo = namedtuple('NamedSongInfo', ['name', 'variants', 'layers'])
-TitledSongInfo = namedtuple('TitledSongInfo', ['name', 'title', 'variants', 'layers'])
+class SongInfo(NamedTuple):
+    name: str
+    title: str
+    file: str
+    variants: Sequence[SongVariantURL]
+    layers: Sequence[SongVariantURL]
 
 
 def get_brstms(
     local_filename: str,
-    # variants: Sequence[SongVariantURL],
-    # layers: Sequence[SongVariantURL],
-    info: Union[NamedSongInfo, TitledSongInfo, Sequence],
+    info: Union[SongInfo, Sequence[SongInfo]],
     logout=sys.stdout,
     err_handle: Callable = ...
 ) -> dict:
@@ -35,33 +42,38 @@ def get_brstms(
             print("Could not download", link, e)
         err_handle = default_handle
     
-    if isinstance(info, tuple):
+    if isinstance(info, SongInfo):
         info = [info]
     songs = []
 
     for songinfo in info:
-        if len(songinfo) == 3:
-            title, variants, layers = songinfo
-            name = os.path.basename(local_filename)
-        else:
-            name, title, variants, layers = songinfo
-
-        page = requests.get(variants[0].url)
+        page = requests.get(songinfo.variants[0].url)
         soup = BeautifulSoup(page.content, "html.parser")
         brstm_info = soup.find(id="prevsub")
 
         info = brstm_info.find(id="prevleft")
         info = info.find_all("td")
-
+        
         prevloc = locale.getlocale(locale.LC_NUMERIC)
         locale.setlocale(locale.LC_NUMERIC, 'en_US.UTF-8')
         loop_start = locale.atoi(info[33].text)
         loop_end = locale.atoi(info[35].text)
+        samplerate = int(info[37].text)
         locale.setlocale(locale.LC_NUMERIC, prevloc)
         
-        brstm_filename = local_filename + ".brstm"
+        dirname = os.path.dirname(local_filename)
+        if dirname:
+            dirname += '/'
 
-        def download_brstm(soup: BeautifulSoup, variant: str = ""):
+        songfile = sf.SoundFile(
+            dirname + songinfo.file,
+            mode='w',
+            samplerate=samplerate,
+            channels=(len(songinfo.variants) + len(songinfo.layers)) * 2,
+            format='OGG'
+        )
+
+        def download_brstm(soup: BeautifulSoup, number: int):
             soup = soup.find(id="brstmdl")
             soup = soup.find_all("a")[0]
             brstm_link = "https://web.archive.org/" + soup.attrs["href"]
@@ -71,38 +83,93 @@ def get_brstms(
                     request.raise_for_status()
                 except HTTPError as e:
                     err_handle(e, brstm_link)
+                    return
 
-                with open(brstm_filename, "wb") as file:
+                brstm_filename = f'{local_filename}-{number}'
+
+                with open(brstm_filename + '.brstm', "wb") as file:
                     for chunk in request.iter_content(chunk_size=8192):
                         file.write(chunk)
                 try:
-                    ffmpeg.input(brstm_filename).output(
-                        local_filename + variant + ".wav").run(overwrite_output=True)
+                    ffmpeg.input(brstm_filename + '.brstm').output(
+                        brstm_filename + '.flac').run(overwrite_output=True)
                 except ffmpeg.Error as e:
                     err_handle(e, brstm_link)
+        
+        print('Downloading BRSTM files...')
 
-        try:
-            for variant in variants:
-                page = requests.get(variant.url)
-                soup = BeautifulSoup(page.content, "html.parser")
-                download_brstm(soup, variant.name)
-            for layer in layers:
-                page = requests.get(layer.url)
-                soup = BeautifulSoup(page.content, "html.parser")
-                download_brstm(soup, layer.name)
-        except StopIteration:
-            pass
-        finally:
-            os.remove(brstm_filename)
+        variant_map = {}
+        for i, variant in enumerate(songinfo.variants):
+            page = requests.get(variant.url)
+            soup = BeautifulSoup(page.content, "html.parser")
+            download_brstm(soup, i)
+            variant_map[variant.name] = i
+
+        layer_map = {}
+        for i, layer in enumerate(songinfo.layers):
+            page = requests.get(layer.url)
+            soup = BeautifulSoup(page.content, "html.parser")
+            download_brstm(soup, i)
+            layer_map[layer.name] = i
+
+        files: list[sf.SoundFile] = []
+        for i in range(songfile.channels // 2):
+            files.append(sf.SoundFile(f'{local_filename}-{i}.flac'))
+
+        def read_chunk(
+            infile: sf.SoundFile,
+            outfiles: Iterable[sf.SoundFile],
+            size: int
+        ):
+            data = np.ndarray((size, infile.channels), 'float64')
+            maxlength = 0
+            for i, file in enumerate(outfiles):
+                fileread = file.read(size)
+                maxlength = max(maxlength, len(fileread))
+                data[:len(fileread), 2*i:2*(i+1)] = fileread
+            return data[:maxlength]
+
+        data = 'a'
+        chunk_size = 8192
+        print('Copying audio data...')
+        while len(data):
+            data = read_chunk(songfile, files, chunk_size)
+            songfile.write(data)
+            songfile.flush()
+
+        # Workaround to a problem where the file dies while
+        # looping because it loses some data when seeking
+        if songfile.frames - loop_end < 2048:
+            print('Padding file at the end...')
+            for file in files:
+                file.seek(loop_start)
+            songfile.write(read_chunk(songfile, files, 2048))
+            songfile.flush()
+
+        songfile.close()
+
+        for i in range(songfile.channels // 2):
+            os.remove(f'{local_filename}-{i}.brstm')
+            os.remove(f'{local_filename}-{i}.flac')
+
+        print('Metadata...')
+
+        tags = mutagen.File(dirname + songinfo.file)
+        tags['title'] = [songinfo.title]
+        tags['loopstart'] = [str(loop_start)]
+        tags['looplength'] = [str(loop_end - loop_start)]
+        def default_padding(info):
+            return info.get_default_padding()
+        tags.save(padding=default_padding)
 
         songs.append({
-            "name": name,
-            "title": title,
-            "variants": list(v.name[1:] for v in variants),
-            "layers": list(l.name[1:] for l in layers),
-            "loopstart": loop_start,
-            "loopend": loop_end
+            "version": 2,
+            "name": songinfo.name,
+            "filename": songinfo.file,
+            "variants": variant_map,
+            "layers": layer_map
         })
+    
     if len(songs) == 1:
         return songs[0]
     else:
@@ -110,6 +177,8 @@ def get_brstms(
 
 
 def main():
+    # TODO: Rework into a wizard rather than argv spam
+
     if len(sys.argv) < 3:
         print(
             "Rips a WAV file from a BRSTM from the archive of SmashCustomMusic.",
@@ -145,7 +214,7 @@ def main():
     except StopIteration:
         pass
 
-    file = get_brstms(local_filename, NamedSongInfo("", variants, layers))
+    file = get_brstms(local_filename, SongInfo("", variants, layers))
     file["name"] = input(
         "Enter VGM title (leave blank to use file name): ") or os.path.basename(local_filename)
     json.dump(
