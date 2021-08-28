@@ -9,7 +9,7 @@ from os.path import basename, dirname, splitext
 from threading import Event, Thread
 from typing import Any, Callable, Mapping, NamedTuple, Union
 
-import audio_metadata as am
+import mutagen
 import numpy as np
 import sounddevice as sd
 import soundfile as sf
@@ -505,7 +505,12 @@ def open_loops(
         if not isinstance(file_list, Sequence):
             file_list = [file_list]
     else:
-        file_list = [{'filename': basename(filename), 'version': 2}]
+        file_list = [
+            {
+                'filename': basename(filename),
+                'version': 2,
+                'layers': ...}
+            ]
     # except FileNotFoundError as e:
     #     if errhand is None:
     #         pass
@@ -526,8 +531,7 @@ def open_loops(
             if varname:
                 varname = '-' + varname
             file = name + varname + '.' + info.get('filetype', 'wav')
-        meta = am.load(file)
-        tags = meta['tags']
+        tags = mutagen.File(file)
 
         try:
             loopstart = int(tags['loopstart'][0])
@@ -576,7 +580,11 @@ def open_loops(
         if version == 2:  # Monolithic loop
             file = sf.SoundFile(file)
             variants = info.get('variants', [0])
-            layers = info.get('layers', range(1, file.channels // 2))
+            layers = info.get('layers', None)
+            if layers is None:
+                layers = []
+            if layers is ...:
+                layers = range(1, file.channels // 2)
             loop = MultiTrackLoop(
                 title,
                 part_name,

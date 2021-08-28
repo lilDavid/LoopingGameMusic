@@ -1,6 +1,3 @@
-#!/usr/bin/env python3
-
-import asyncio
 import json
 import os.path
 import sys
@@ -10,15 +7,14 @@ import tkinter.messagebox
 from tkinter import ttk
 from typing import Sequence, Tuple
 
-from get_brstm import SongVariantURL, TitledSongInfo, get_brstms
-from loop import PlaytimeUpdate
+from get_brstm import SongVariantURL, SongInfo, get_brstms
 from loopaudio import SongLoop, open_loops
 
 
-class UpdaterProgressBar(PlaytimeUpdate):
+class UpdaterProgressBar():
 
     def __init__(self, song: SongLoop, progressbar: ttk.Progressbar):
-        super().__init__(song)
+        self.song = song
         self.bar = progressbar
 
     def start(self):
@@ -312,7 +308,7 @@ class SCMImportGUI:
             [part.create_song_info() for part in self.parts],
             None,
             lambda e, file: tkinter.messagebox.showerror(
-                "Download error", "Could not download file: " + file + "\n" + e)
+                "Download error", "Could not download file: " + file + "\n" + str(e))
         )
         json.dump(
             file,
@@ -345,17 +341,21 @@ class SongPartUI:
         tk.Label(name_panel, text="Title:").grid(row=0, column=0)
         tk.Entry(name_panel, textvariable=self.title).grid(
             row=0, column=1, sticky="EW")
-        name_panel.columnconfigure(1, weight=1)
         name_panel.grid(row=0, sticky="EW")
 
         def set_widget_name(*_):
             nb.tab(index + 1, text = self.short_name.get() or "<untitled>")
 
         self.short_name = tk.StringVar(self.panel)
-        tk.Label(name_panel, text="Short name:").grid(row=1, column=0)
+        tk.Label(name_panel, text="Part name:").grid(row=1, column=0)
         name_entry = tk.Entry(name_panel, textvariable=self.short_name)
         name_entry.bind("<FocusOut>", set_widget_name)
         name_entry.grid(row=1, column=1, sticky="EW")
+
+        self.filename = tk.StringVar(self.panel)
+        tk.Label(name_panel, text="Filename:").grid(row=2, column=0)
+        tk.Entry(name_panel, textvariable=self.filename).grid(row=2, column=1, sticky='EW')
+
         name_panel.columnconfigure(1, weight=1)
 
         self.variant_panel = tk.LabelFrame(self.panel, text="Variants")
@@ -384,7 +384,7 @@ class SongPartUI:
 
         self.variant_panel.columnconfigure(0, weight=1)
         self.variant_panel.columnconfigure(1, weight=1)
-        self.variant_panel.grid(row=2, sticky="NSEW")
+        self.variant_panel.grid(row=3, sticky="NSEW")
 
         self.layer_panel = tk.LabelFrame(self.panel, text="Layers")
         self.layers = []
@@ -410,10 +410,10 @@ class SongPartUI:
 
         self.layer_panel.columnconfigure(0, weight=1)
         self.layer_panel.columnconfigure(1, weight=1)
-        self.layer_panel.grid(row=3, sticky="NSEW")
+        self.layer_panel.grid(row=4, sticky="NSEW")
 
-        self.panel.rowconfigure(2, weight=1)
         self.panel.rowconfigure(3, weight=1)
+        self.panel.rowconfigure(4, weight=1)
         self.panel.columnconfigure(0, weight=1)
         self.panel.grid(row=row, sticky="NSEW")
     
@@ -465,12 +465,13 @@ class SongPartUI:
     def get_layers(self) -> Sequence[Tuple]:
         return [(lay[0].get(), lay[1].get()) for lay in self.layers]
     
-    def create_song_info(self) -> TitledSongInfo:
-        return TitledSongInfo(
+    def create_song_info(self) -> SongInfo:
+        return SongInfo(
             self.short_name.get(),
             self.title.get(),
-            [SongVariantURL("-" + var[0] if var[0] else "", var[1]) for var in self.get_variants()],
-            [SongVariantURL("-" + lay[0], lay[1]) for lay in self.get_layers()]
+            self.filename.get(),
+            [SongVariantURL(var[0], var[1]) for var in self.get_variants()],
+            [SongVariantURL(lay[0], lay[1]) for lay in self.get_layers()]
         )
 
 
