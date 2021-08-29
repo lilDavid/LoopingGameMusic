@@ -30,9 +30,55 @@ You can also import loopaudio as a module in order to play these loops. The main
 As mentioned before, the Loop GUI opens either a single audio file or a JSON file that joins together several such files. The details of such are as follows:
 
 ### Audio files
-
-...
+The only formatting an audio file needs in order to loop in this program is the LOOPSTART and LOOPLENGTH metadata tags. The program internally uses the end loop point rather than the length, but length is used in the file because (apparently) RPG Maker does the same. Anyway, the Title tag is also used to display the name of the song, although it can work fine without. For variable mixing to work, the song simply needs more than two audio tracks, though currently the number of tracks must also be even. Opening the sound file directly in the program will read all of those pairs as layers, but if you write a JSON file describing the song, you can get the proper variants and layers as well as their names when opened in the GUI.
 
 ### JSON files
+The real meat that this program runs on is JSON files describing the loops. A typical file with multiple parts and mixes may look like this one:
+```json
+[
+		{
+		"version": 2,
+		"name": "Normal",
+		"filename": "dolphin_shoals_n.ogg",
+		"variants": {
+			"Shallow water": 0,
+			"Deep water": 2,
+			"Above water": 3
+		},
+		"layers": {
+			"Frontrunning": 1
+		}
+	},
+	{
+		"version": 2,
+		"name": "Final lap",
+		"filename": "dolphin_shoals_f.ogg",
+		"variants": {
+			"Main track": 0
+		},
+		"layers": {
+			"Frontrunning": 1
+		}
+	},
+	{
+		"version": 2,
+		"name": "Highlight Reel",
+		"filename": "dolphin_shoals_h.ogg",
+		"variants": {
+			"Main track": 0
+		}
+	}
+]
+```
+The breakdown of which is as follows.
 
-...
+#### Top level
+This will be either a single object describing one part, or a list of the same to make multiple parts.
+
+#### Part data
+- **version**: The version of the reader to use. For the foreseeable future this will be 2, as 1 was obsolete before I published this on GitHub.
+- **name**: The name for this part. Separate from the title, it should be short and descriptive of its relation to the whole song. If the song only has one part, you don't need to specify this, but it would be a good idea if it has multiple.
+- **title**: The title of the song. Overrides the file's Title tag if it has one, but if neither is specified the player will display the filename.
+- ••filename**: The location of the file relative to this JSON file.
+- **variants**: Names for the song's variants and which **pair** of channels it's for. So in the case of the first "Normal" part, "Shallow water" is the first and second channels, "Deep water" is the fifth and sixth, and "Above water" is the seventh and eigth.
+- **layers**: Same as above for the song's layers. If absent, the song will default to having no layers and only some number of variants—see the third part "Highlight Reel".
