@@ -36,7 +36,7 @@ The only formatting an audio file needs in order to loop in this program is the 
 The real meat that this program runs on is JSON files describing the loops. A typical file with multiple parts and mixes may look like this one:
 ```json
 [
-		{
+	{
 		"version": 2,
 		"name": "Normal",
 		"filename": "dolphin_shoals_n.ogg",
