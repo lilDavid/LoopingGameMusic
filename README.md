@@ -8,10 +8,10 @@ The file to use as the main module is loop_gui.py. From there you can access bot
 ### Player
 When you open the player, your first step is the 'File' pane. You can open any compatible file after selecting it or entering its location relative to the current working directory (the folder opened when pressing the 'Pick file' button). Compatible files include probably most audio file types (OGG is the only type I've tested) or a JSON file describing the relationship between several files—more on that later.
 
-When pressing the 'Load' button, one or more options just below the file selector will appear with the song's parts. Each part is a separate loop, and the current part can be changed at any time. When selecting a part, it will start playing immediately and populate the 'Variants' and 'Layers' panels. In those panels, you can select which variant to play as well as which layers (if any) to play on top. These variants and layers can be changed on the fly as the song plays to emulate the dynamic mixing some games employ. The slider below the variants and layers will change the volume of the song. To stop playback, you can press the 'Stop' button next to the file name, or you may select a different part's button to immediately start playing it instead.
+When pressing the 'Load' button, one or more options just below the file selector will appear with the song's parts. Each part is a separate loop, and the current part can be changed at any time. When selecting a part, it will start playing immediately and populate the 'Variants' and 'Layers' panels. In those panels, you can select which variant to play as well as which layers (if any) to play on top. These variants and layers can be changed on the fly as the song plays to emulate the dynamic mixing some games employ. The slider below the variants and layers will change the volume of the song. To stop playback, you can press the 'Stop' button next to the part buttons, or you may select a different part's button to immediately start playing it instead.
 
 ### Smash Custom Music archive
-You can press the button at the very bottom of the window to open the GUI to import BRSTM files from [the archive of Smash Custom Music](https://web.archive.org/web/20190619095108/https://www.smashcustommusic.com/gamelist) as playable songs. From there you can start again with the 'File' panel by entering a path for a JSON file for the song's data. The only relevant button on the second row of this panel is 'Start conversion;' nothing else there does anything yet.
+You can press the button at the very bottom of the window to open the GUI to import BRSTM files from [the archive of Smash Custom Music](https://web.archive.org/web/20190619095108/https://www.smashcustommusic.com/gamelist) as playable songs. From there you can start again with the 'File' panel by entering a path for a JSON file for the song's data. The next row contains both the 'Start conversion' button and a 'Use JSON' checkbox. The latter doesn't do anything yet.
 
 The tabbed pane is where you manage each part of the song. If your song only has one part to it—that is, there's only one loop associated with it and it isn't meant to transition to something else—you can ignore the 'Manage parts' tab. Otherwise, that's where you can add and remove tabs and by extension parts to your song.
 
@@ -36,7 +36,7 @@ The only formatting an audio file needs in order to loop in this program is the 
 The real meat that this program runs on is JSON files describing the loops. A typical file with multiple parts and mixes may look like this one:
 ```json
 [
-		{
+	{
 		"version": 2,
 		"name": "Normal",
 		"filename": "dolphin_shoals_n.ogg",

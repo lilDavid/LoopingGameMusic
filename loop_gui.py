@@ -113,18 +113,14 @@ class LoopGUI:
         ttk.Button(file_pane, text="Load",
                    command=self.load).grid(row=0, column=2)
 
-        self.stop_button = ttk.Button(
-            file_pane, text="Stop", command=self.stop_loop)
-        self.stop_button.state(["disabled"])
-        self.stop_button.grid(row=0, column=3)
-
+        # List of parts
         canvas = tk.Canvas(file_pane, height=0, bd=0, highlightthickness=0, relief="ridge")
         scrollbar = ttk.Scrollbar(file_pane, orient="horizontal", command=canvas.xview)
         canvas.configure(xscrollcommand=scrollbar.set, yscrollcommand=scrollbar.set)
         canvas.bind("<Configure>", lambda _: canvas.configure(
             scrollregion=canvas.bbox('all')))
-        canvas.grid(row=1, columnspan=4, sticky="EW")
-        scrollbar.grid(row=2, columnspan=4, sticky="EW")
+        canvas.grid(row=1, columnspan=3, sticky="EW")
+        scrollbar.grid(row=2, columnspan=3, sticky="EW")
 
         self.song_panel = tk.Frame(canvas)
         canvas.create_window((0, 0), window=self.song_panel, anchor='nw')
@@ -147,6 +143,8 @@ class LoopGUI:
         def play_song(song: la.SongLoop):
             return lambda: self.play_loop(song)
         
+        # Rebuild song panel
+
         for widget in self.song_panel.winfo_children():
             widget.destroy()
 
@@ -165,63 +163,74 @@ class LoopGUI:
             song_record["button"].pack(side=tk.LEFT)
             self.song_panel.pack()
 
+        self.stop_button = ttk.Button(
+            self.song_panel, text="Stop", command=self.stop_loop)
+        self.stop_button.state(["disabled"])
+        self.stop_button.pack(side=tk.LEFT)
+
     def play_loop(self, song: la.SongLoop):
+        # Stop song and change parts
         try:
-            try:
-                self.song.stop()
-            except AttributeError:
-                pass
-            finally:
-                self.song = song
-                pb = UpdaterProgressBar(song, self.progress_bar)
-                pb.start()
-                song.play_async(callback=pb.update)
-            self.stop_button.state(["!disabled"])
+            self.song.stop()
+        except AttributeError:
+            pass
+        finally:
+            self.song = song
+            pb = UpdaterProgressBar(song, self.progress_bar)
+            pb.start()
+            song.play_async(callback=pb.update)
+        self.stop_button.state(["!disabled"])
 
-            for widget in self.variant_pane.winfo_children():
-                widget.destroy()
-            selected_variant = tk.IntVar(master=self.variant_pane, value=0)
-            variants = list(song.variants())
+        # Rebuild variant and layer panels
 
-            def select_variant():
-                song.set_variant(variants[selected_variant.get()], 5.0)
+        for widget in self.variant_pane.winfo_children():
+            widget.destroy()
+        selected_variant = tk.IntVar(master=self.variant_pane, value=0)
+        variants = list(song.variants())
 
-            radiobuttons = [ttk.Radiobutton(
-                                self.variant_pane,
-                                variable=selected_variant,
-                                text=var, value=pos,
-                                command=select_variant)
-                            for pos, var in enumerate(variants)]
-            for button in radiobuttons:
-                button.pack(anchor=tk.W)
-            if radiobuttons[0]["text"] == "":
-                radiobuttons[0]["text"] = "<default>"
-            selected_variant.set(0)
+        def select_variant():
+            song.set_variant(variants[selected_variant.get()], 5.0)
+        radiobuttons = [ttk.Radiobutton(
+                            self.variant_pane,
+                            variable=selected_variant,
+                            text=var, value=pos,
+                            command=select_variant)
+                        for pos, var in enumerate(variants)]
+        for button in radiobuttons:
+            button.pack(anchor=tk.W)
+        if radiobuttons[0]["text"] == "":
+            radiobuttons[0]["text"] = "<default>"
+        selected_variant.set(0)
 
-            for widget in self.layer_pane.winfo_children():
-                widget.destroy()
+        for widget in self.layer_pane.winfo_children():
+            widget.destroy()
 
-            def layer_set_function(layer, variable):
-                return lambda: song.set_layer(layer, variable.get())
+        def layer_set_function(layer, variable):
+            return lambda: song.set_layer(layer, variable.get())
 
-            for lay in song.layers():
-                var = tk.IntVar()
-                check = ttk.Checkbutton(
-                    self.layer_pane, variable=var, text=lay, command=layer_set_function(lay, var))
-                var.set(0)
-                check.pack(anchor=tk.W)
+        for lay in song.layers():
+            var = tk.IntVar()
+            check = ttk.Checkbutton(
+                self.layer_pane, variable=var, text=lay, command=layer_set_function(lay, var))
+            var.set(0)
+            check.pack(anchor=tk.W)
+        
+        # Reset variants/layers for next part
+        if song.variants():
+            song.set_variant(next(iter(song.variants())))
+        song.set_layers(0)
 
-            self.now_playing.set(song.title)
-
-        except FileNotFoundError as err:
-            tkinter.messagebox.showinfo(
-                title=None, message="File doesn't exist: " + err.filename)
+        self.now_playing.set(song.title)
 
     def stop_loop(self):
         self.song.stop()
         self.stop_button.state(["disabled"])
         self.now_playing.set("")
         self.progress_bar["value"] = 0
+        for widget in self.variant_pane.winfo_children():
+            widget.destroy()
+        for widget in self.layer_pane.winfo_children():
+            widget.destroy()
 
 
 class SCMImportGUI:
@@ -235,6 +244,7 @@ class SCMImportGUI:
         self.part_ui = ttk.Notebook(master)
         self.part_ui.grid(row=1, sticky="NSEW")
 
+        # Part manager
         manage = tk.Frame(self.part_ui)
         tk.Label(
             manage,
@@ -260,6 +270,7 @@ class SCMImportGUI:
     def _build_file_panel(self, master):
         file_panel = tk.LabelFrame(master, text="File")
 
+        # Base file location
         file_field = tk.Frame(file_panel)
         self.file_name = tk.StringVar(file_field)
         tk.Label(file_field, text="File name").grid(row=0, column=0)
@@ -277,7 +288,8 @@ class SCMImportGUI:
 
         conversion_start = tk.Frame(file_panel)
 
-        self.use_json = tk.IntVar(conversion_start)
+        # 'Use JSON' checkbox
+        self.use_json = tk.BooleanVar(conversion_start)
         json_btn = ttk.Checkbutton(
             conversion_start,
             text='Use JSON',
@@ -285,44 +297,16 @@ class SCMImportGUI:
             onvalue=True,
             variable=self.use_json
         )
-        json_btn.grid(row=0, column=3, sticky='W', ipadx=10)
+        json_btn.grid(row=0, column=0, sticky='W', padx=5)
         self.use_json.set(True)
 
-        self.file_type = tk.StringVar(conversion_start)
-        def set_not_wav():
-            json_btn.state(['!disabled'])
-        def set_wav():
-            self.use_json.set(True)
-            json_btn.state(['disabled'])
-        ttk.Radiobutton(
-            conversion_start,
-            variable=self.file_type,
-            value='ogg',
-            text='OGG',
-            command=set_not_wav
-        ).grid(row=0, column=0, sticky='W', ipadx=5)
-        ttk.Radiobutton(
-            conversion_start,
-            variable=self.file_type,
-            value='flac',
-            text='FLAC',
-            command=set_not_wav
-        ).grid(row=0, column=1, sticky='W', ipadx=5)
-        ttk.Radiobutton(
-            conversion_start,
-            variable=self.file_type,
-            value='wav',
-            text='WAV',
-            command=set_wav
-        ).grid(row=0, column=2, sticky='W', ipadx=5)
-        self.file_type.set('ogg')
-
+        # Start!
         ttk.Button(
             conversion_start,
             text="Start conversion",
             command=self.start_conversion
-        ).grid(row=0, column=4, sticky='E')
-        conversion_start.columnconfigure(3, weight=1)
+        ).grid(row=0, column=1, sticky='E')
+        conversion_start.columnconfigure(0, weight=1)
         conversion_start.grid(row=1, sticky="EW")
 
         file_panel.columnconfigure(0, weight=1)
@@ -336,10 +320,7 @@ class SCMImportGUI:
             lambda e, file: tkinter.messagebox.showerror(
                 "Download error", "Could not download file: " + file + "\n" + str(e))
         )
-        json.dump(
-            file,
-            open(self.file_name.get(), "wt")
-        )
+        json.dump(file, open(self.file_name.get(), "w"))
         tkinter.messagebox.showinfo(message="Loop created!")
     
     def add_part(self):
@@ -362,6 +343,7 @@ class SongPartUI:
     def __init__(self, master, row, nb: ttk.Notebook, index: int):
         self.panel = tk.Frame(master)
 
+        # Names and files
         name_panel = tk.LabelFrame(self.panel, text="Information")
         self.title = tk.StringVar(self.panel)
         tk.Label(name_panel, text="Title:").grid(row=0, column=0)
@@ -384,6 +366,7 @@ class SongPartUI:
 
         name_panel.columnconfigure(1, weight=1)
 
+        # Variants
         self.variant_panel = tk.LabelFrame(self.panel, text="Variants")
         self.variants = []
         tk.Label(
@@ -412,6 +395,7 @@ class SongPartUI:
         self.variant_panel.columnconfigure(1, weight=1)
         self.variant_panel.grid(row=3, sticky="NSEW")
 
+        # Layers
         self.layer_panel = tk.LabelFrame(self.panel, text="Layers")
         self.layers = []
         tk.Label(
