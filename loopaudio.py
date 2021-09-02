@@ -1,11 +1,11 @@
 import itertools
 import json
+import os.path
 import queue as q
 import sys
 from abc import ABC, abstractmethod
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from os.path import basename, dirname, splitext
 from threading import Event, Thread
 from typing import Any, Callable, Mapping, NamedTuple, Union
 
@@ -13,10 +13,9 @@ import mutagen
 import numpy as np
 import sounddevice as sd
 import soundfile as sf
-from audio_metadata.exceptions import UnsupportedFormat
-
 
 volume: float = 1.0
+paused: bool = False
 
 
 class LoopData(NamedTuple):
@@ -299,12 +298,11 @@ class SongLoop(ABC):
             )
 
         with stream:
-            timeout = self.block_size * self.buffer_size / self.sample_rate()
             data = [0]
             while len(data) and not self.stopped:
                 callback()
                 data = self.read_data()
-                self._dataqueue.put(data, timeout=timeout)
+                self._dataqueue.put(data)
             if self.stopped:
                 with self._dataqueue.mutex:
                     self._dataqueue.queue.clear()
@@ -329,7 +327,11 @@ class SongLoop(ABC):
             raise sd.CallbackAbort
         assert not status
         try:
-            data = self._mix_data(self._dataqueue.get_nowait()) * volume
+            if paused:
+                data = np.zeros((self.block_size, 2))
+            else:
+                data = self._dataqueue.get_nowait()
+                data = self._mix_data(data) * volume
         except q.Empty as e:
             print('Buffer is empty: increase buffersize?', file=sys.stderr)
             raise sd.CallbackAbort from e
@@ -498,11 +500,10 @@ def open_loops(
     buffersize: int = 20,
     blocksize: int = 2048
 ) -> Sequence[SongLoop]:
-    # try:
-    dir = dirname(filename)
+    dir = os.path.dirname(filename)
     if dir:
         dir += '/'
-    name, ext = splitext(filename)
+    name, ext = os.path.splitext(filename)
     if ext == '.json':
         file_list = json.load(open(filename, 'r'))
         if not isinstance(file_list, Sequence):
@@ -510,7 +511,7 @@ def open_loops(
     else:
         file_list = [
             {
-                'filename': basename(filename),
+                'filename': os.path.basename(filename),
                 'version': 2,
                 'layers': ...}
             ]
@@ -539,7 +540,7 @@ def open_loops(
         try:
             loopstart = int(tags['loopstart'][0])
             loopend = loopstart + int(tags['looplength'][0])
-        except (UnsupportedFormat, KeyError):
+        except KeyError:
             loopstart = None
             loopend = None
 
@@ -607,7 +608,7 @@ def open_loops(
 
 def main():
     try:
-        song = open_loops('oggs/dolphin_shoals_n.ogg')[0]
+        song = open_loop('examples/dolphin_shoals_n.ogg')
         song.play()
     except KeyboardInterrupt:
         return

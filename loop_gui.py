@@ -55,27 +55,35 @@ class LoopGUI:
         # Volume
         volume_panel = tk.Frame(master)
         
-        self.volume = tk.DoubleVar(value=1.0)
+        def toggle_pause():
+            la.paused = not la.paused
+        tk.Button(
+            volume_panel,
+            text="Pause",
+            command=toggle_pause
+        ).grid(row=0, column=0)
+
         volpercent = tk.StringVar()
-        def set_volume(_):
-            la.volume = self.volume.get()
-            volpercent.set(f'Volume: {la.volume:3.0%}')
-        set_volume(None)
+        def set_volume(vol):
+            vol = float(vol)
+            la.volume = vol
+            volpercent.set(f'Volume: {vol:3.0%}')
+        set_volume(la.volume)
         
         tk.Label(
             volume_panel,
             textvariable=volpercent
-        ).grid(row=0, column=0, sticky='E')
+        ).grid(row=0, column=1, sticky='E')
 
         ttk.Scale(
             volume_panel,
             from_=0,
             to=1.0,
+            value=1.0,
             orient='horizontal',
-            variable=self.volume,
             command=set_volume
-        ).grid(row=0, column=1, sticky='EW')
-        volume_panel.columnconfigure(1, weight=1)
+        ).grid(row=0, column=2, sticky='EW')
+        volume_panel.columnconfigure(2, weight=1)
         volume_panel.grid(row=5, columnspan=2, sticky='EW')
 
         # BRSTM downloader
@@ -170,6 +178,7 @@ class LoopGUI:
 
     def play_loop(self, song: la.SongLoop):
         # Stop song and change parts
+        la.paused = False
         try:
             self.song.stop()
         except AttributeError:
