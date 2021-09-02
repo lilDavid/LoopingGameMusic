@@ -2,6 +2,15 @@
 
 A music player that can play video game music that loops continuously. Also supports songs with multiple parts as well as variable mixing.
 
+## Dependencies
+- `SoundFile`
+- `requests`
+- `mutagen`
+- `ffmpeg-python`
+- `numpy`
+- `sounddevice`
+- `beautifulsoup4`
+
 ## Using
 The file to use as the main module is loop_gui.py. From there you can access both the player and the Smash Custom Music import feature. You *can* also run get_brstm.py, but currently the entry point for that file is broken and will be fixed at a later date.
 
