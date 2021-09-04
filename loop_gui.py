@@ -55,11 +55,13 @@ class LoopGUI:
         # Volume
         volume_panel = tk.Frame(master)
         
+        self.pause_text = tk.StringVar(value='Pause')
         def toggle_pause():
             la.paused = not la.paused
+            self.pause_text.set(('Pause', 'Play')[la.paused])
         tk.Button(
             volume_panel,
-            text="Pause",
+            textvariable=self.pause_text,
             command=toggle_pause
         ).grid(row=0, column=0)
 
@@ -162,7 +164,7 @@ class LoopGUI:
             lambda file, *_: tkinter.messagebox.showerror(
                 "Could not open file", f"File '{file}' does not exist"
             )
-        ),
+        )
         for num, song in enumerate(loops, start=1):
             song_record = {
                 "name": song.name,
@@ -186,6 +188,7 @@ class LoopGUI:
     def play_loop(self, song: la.SongLoop):
         # Stop song and change parts
         la.paused = False
+        self.pause_text.set('Pause')
         try:
             self.song.stop()
         except AttributeError:
