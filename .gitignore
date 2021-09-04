@@ -1,11 +1,11 @@
-# Test files; I shouldn't need more than these to test
+# Song files - no need to overfill the repo
 loops/**
 oggs/**
 
 # Internals
 .vscode/**
 **/.DS_Store
-__pycache__/**
+*.pyc
 
 # Old versions that will be removed from the original computer soon
 loop.py
