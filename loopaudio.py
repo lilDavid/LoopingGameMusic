@@ -7,7 +7,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from os.path import basename, dirname, splitext
 from threading import Event, Thread
-from typing import Any, Callable, Mapping, NamedTuple, Union
+from typing import Any, AnyStr, Callable, Mapping, NamedTuple, Tuple, Union
 
 import mutagen
 import numpy as np
@@ -67,6 +67,78 @@ class SoundLoopPlayback:
             self.current_frame += chunksize
 
 
+@dataclass(repr=True)
+class SongTags:
+
+    title: Any
+    artist: Any
+    album: Any
+    number: Any
+    year: Any
+    game: Any
+
+    def __init__(self, tags: Mapping = None, **kwargs):
+        tags = {} if tags is None else tags
+        def get_tag(tag: str):
+            tag = tags.get(tag, kwargs.get(tag, None))
+            if not tag:
+                return None
+            if len(tag) == 1:
+                return next(iter(tag))
+            return tag
+
+        self.title = get_tag('title')
+        self.artist = get_tag('artist')
+        self.album = get_tag('album')
+        self.number = None
+        self.year = get_tag('date')
+        self.game = get_tag('game')
+    
+    def __iter__(self):
+        yield 'title', self.title
+        yield 'artist', self.artist
+        yield 'album', self.album
+        yield 'game', self.game
+        yield 'track number', self.number
+        yield 'year', self.year
+
+    def __bool__(self):
+        return any(val for _, val in self)
+
+    def to_str_list(self):
+        def is_listable(obj):
+            return isinstance(obj, Sequence) and not isinstance(obj, AnyStr)
+
+        def list_form(item) -> Tuple[bool, str]:
+            if is_listable(item):
+                return True, ', '.join(item)
+            return False, str(item)
+
+        data = []
+        if self.title:
+            data.append(str(self.title))
+        if self.artist:
+            data.append(str(self.artist))
+        if self.album and self.game:
+            data.append(f'Album: {self.album}')
+
+            plural, game = list_form(self.game)
+            data.append(f'{"Games" if plural else "Game"}: {game}')
+        elif self.album:
+            data.append(self.album)
+        elif self.game:
+            _, game = list_form(self.game)
+            data.append(game)
+        if self.number:
+            data.append('#' + str(self.number))
+        if self.year:
+            data.append(str(self.year))
+        return data
+
+    def __str__(self):
+        return '; '.join(self.to_str_list())
+
+
 # streamed into memory - probably has to be unique
 class SongLoop(ABC):
 
@@ -74,7 +146,7 @@ class SongLoop(ABC):
     _tracks: Sequence[TrackData]
 
     def __init__(self,
-                 title: str,
+                 tags: SongTags,
                  name: str,
                  variants: Union[Sequence, Mapping],
                  layers: Union[Sequence, Mapping, None] = None,
@@ -83,7 +155,7 @@ class SongLoop(ABC):
                  blocksize: int = 2048,
                  buffersize: int = 20
                 ):
-        self.title = title
+        self.tags = tags
         self.name = name
 
         self.loop = LoopData(loopstart, loopend)
@@ -358,7 +430,7 @@ class SongLoop(ABC):
 class MultiTrackLoop(SongLoop):
 
     def __init__(self,
-                 title: str,
+                 tags: SongTags,
                  name: str,
                  soundfile: sf.SoundFile,
                  variants: Union[Sequence, Mapping],
@@ -369,7 +441,16 @@ class MultiTrackLoop(SongLoop):
                  blocksize: int = 2048,
                  buffersize: int = 20
                 ):
-        super().__init__(title, name, variants, layers, loopstart, loopend, blocksize, buffersize)
+        super().__init__(
+            tags,
+            name,
+            variants,
+            layers,
+            loopstart,
+            loopend,
+            blocksize,
+            buffersize
+        )
         
         if not soundfile.seekable():
             self.loop = None
@@ -417,7 +498,7 @@ class MultiTrackLoop(SongLoop):
 class MultiFileLoop(SongLoop):
 
     def __init__(self,
-                 title: str,
+                 tags: SongTags,
                  name: str,
                  variants: Union[Sequence[sf.SoundFile], Mapping[Any, sf.SoundFile]],
                  layers: Union[Sequence[sf.SoundFile], Mapping[Any, sf.SoundFile], None] = None,
@@ -426,7 +507,16 @@ class MultiFileLoop(SongLoop):
                  blocksize: int = 2048,
                  buffersize: int = 20
                 ):
-        super().__init__(title, name, variants, layers, loopstart, loopend, blocksize, buffersize)
+        super().__init__(
+            tags,
+            name,
+            variants,
+            layers,
+            loopstart,
+            loopend,
+            blocksize,
+            buffersize
+        )
 
         v = variants if isinstance(variants, Sequence) else variants.values()
         l = () if layers is None else layers if isinstance(layers, Sequence) else layers.values()
@@ -535,6 +625,7 @@ def open_loops(
                 varname = '-' + varname
             file = name + varname + '.' + info.get('filetype', 'wav')
         tags = mutagen.File(file)
+        song_tags = SongTags(tags)
 
         try:
             loopstart = int(tags['loopstart'][0])
@@ -548,11 +639,6 @@ def open_loops(
             loopend = info['loopend']
         except KeyError:
             pass
-            
-        try:
-            title = tags['title'][0]
-        except KeyError:
-            title = info.get('title', file)
         
         part_name = info.get('name', 'Play')
 
@@ -571,7 +657,7 @@ def open_loops(
                     name + lay_name + '.' + info.get('filetype', 'wav')
                 )
             loop = MultiFileLoop(
-                title,
+                song_tags,
                 part_name,
                 variants,
                 layers,
@@ -589,7 +675,7 @@ def open_loops(
             if layers is ...:
                 layers = range(1, file.channels // 2)
             loop = MultiTrackLoop(
-                title,
+                song_tags,
                 part_name,
                 file,
                 variants,
@@ -607,7 +693,7 @@ def open_loops(
 
 def main():
     try:
-        song = open_loops('oggs/dolphin_shoals_n.ogg')[0]
+        song = open_loop('examples/dolphin_shoals_n.ogg')
         song.play()
     except KeyboardInterrupt:
         return

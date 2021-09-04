@@ -1,3 +1,4 @@
+import itertools
 import json
 import os.path
 import sys
@@ -6,9 +7,9 @@ import tkinter.filedialog
 import tkinter.messagebox
 from tkinter import ttk
 from typing import Sequence, Tuple
-import loopaudio as la
 
-from get_brstm import SongVariantURL, SongInfo, get_brstms
+import loopaudio as la
+from get_brstm import SongInfo, SongVariantURL, get_brstms
 
 
 class UpdaterProgressBar():
@@ -42,7 +43,7 @@ class LoopGUI:
         play_panel = tk.LabelFrame(master, text="Now playing")
 
         self.now_playing = tk.StringVar(value="")
-        tk.Label(play_panel, textvariable=self.now_playing).grid(row=0, sticky="W")
+        tk.Label(play_panel, textvariable=self.now_playing).grid(row=0, sticky="EW")
         self.song_progress = tk.IntVar()
         self.progress_bar = ttk.Progressbar(play_panel, mode="determinate")
         self.progress_bar.grid(row=1, sticky="EW")
@@ -220,7 +221,7 @@ class LoopGUI:
             song.set_variant(next(iter(song.variants())))
         song.set_layers(0)
 
-        self.now_playing.set(song.title)
+        self.now_playing.set('\n'.join(song.tags.to_str_list()))
 
     def stop_loop(self):
         self.song.stop()
