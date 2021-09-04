@@ -157,13 +157,20 @@ class LoopGUI:
             widget.destroy()
 
         self.songs = []
-        for song in la.open_loops(input_file, lambda file, *_: tkinter.messagebox.showerror(
-                "Could not open file", f"File '{file}' does not exist")):
+        loops = la.open_loops(
+            input_file,
+            lambda file, *_: tkinter.messagebox.showerror(
+                "Could not open file", f"File '{file}' does not exist"
+            )
+        ),
+        for num, song in enumerate(loops, start=1):
             song_record = {
                 "name": song.name,
                 "button": ttk.Button(
                     master=self.song_panel,
-                    text=song.name,
+                    text=(song.name
+                        or ('Play' if len(loops) == 1
+                        else f'Part {num}')),
                     command=play_song(song)
                 )
             }
