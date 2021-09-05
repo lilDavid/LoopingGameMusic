@@ -54,27 +54,37 @@ class LoopGUI:
         # Volume
         volume_panel = tk.Frame(master)
         
-        self.volume = tk.DoubleVar(value=1.0)
+        self.pause_text = tk.StringVar(value='Pause')
+        def toggle_pause():
+            la.paused = not la.paused
+            self.pause_text.set(('Pause', 'Play')[la.paused])
+        tk.Button(
+            volume_panel,
+            textvariable=self.pause_text,
+            command=toggle_pause
+        ).grid(row=0, column=0)
+
         volpercent = tk.StringVar()
-        def set_volume(_):
-            la.volume = self.volume.get()
-            volpercent.set(f'Volume: {la.volume:3.0%}')
-        set_volume(None)
+        def set_volume(vol):
+            vol = float(vol)
+            la.volume = vol
+            volpercent.set(f'Volume: {vol:3.0%}')
+        set_volume(la.volume)
         
         tk.Label(
             volume_panel,
             textvariable=volpercent
-        ).grid(row=0, column=0, sticky='E')
+        ).grid(row=0, column=1, sticky='E')
 
         ttk.Scale(
             volume_panel,
             from_=0,
             to=1.0,
+            value=1.0,
             orient='horizontal',
-            variable=self.volume,
             command=set_volume
-        ).grid(row=0, column=1, sticky='EW')
-        volume_panel.columnconfigure(1, weight=1)
+        ).grid(row=0, column=2, sticky='EW')
+        volume_panel.columnconfigure(2, weight=1)
         volume_panel.grid(row=5, columnspan=2, sticky='EW')
 
         # BRSTM downloader
@@ -148,13 +158,20 @@ class LoopGUI:
             widget.destroy()
 
         self.songs = []
-        for song in la.open_loops(input_file, lambda file, *_: tkinter.messagebox.showerror(
-                "Could not open file", f"File '{file}' does not exist")):
+        loops = la.open_loops(
+            input_file,
+            lambda file, *_: tkinter.messagebox.showerror(
+                "Could not open file", f"File '{file}' does not exist"
+            )
+        )
+        for num, song in enumerate(loops, start=1):
             song_record = {
                 "name": song.name,
                 "button": ttk.Button(
                     master=self.song_panel,
-                    text=song.name,
+                    text=(song.name
+                        or ('Play' if len(loops) == 1
+                        else f'Part {num}')),
                     command=play_song(song)
                 )
             }
@@ -169,6 +186,8 @@ class LoopGUI:
 
     def play_loop(self, song: la.SongLoop):
         # Stop song and change parts
+        la.paused = False
+        self.pause_text.set('Pause')
         try:
             self.song.stop()
         except AttributeError:
