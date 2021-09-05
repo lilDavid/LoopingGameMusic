@@ -60,7 +60,7 @@ def create_part(local_filename: Filename, songinfo: SongInfo) -> Mapping:
     metadata = get_file_information(songinfo, Metadata(title=songinfo.title))
     variant_map, layer_map = download_and_convert_brstms(
         local_filename, songinfo)
-    files = list_filenames(variant_map, layer_map)
+    files = list_track_filenames(variant_map, layer_map)
     filename = create_multitrack_file(
         local_filename, songinfo, metadata, files)
     add_metadata(metadata, filename)
@@ -105,12 +105,13 @@ def download_and_convert_brstms(
 def download_tracks(
     file_basename: Filename,
     tracklist: Sequence[SongVariantURL]
-) -> Mapping[str, Filename]:
+) -> Mapping[str, int]:
     track_map = {}
     for i, track in enumerate(tracklist):
         soup = open_page(track.url)
         download_brstm(soup, file_basename)
-        track_map[track.name] = convert_brstm(file_basename, i)
+        convert_brstm(file_basename, i)
+        track_map[track.name] = i
     return track_map
 
 
@@ -141,12 +142,13 @@ def convert_brstm(filename: Filename, number: int) -> Filename:
     return outfile
 
 
-def list_filenames(
-    *tracklists: Mapping[str, Filename]
+def list_track_filenames(
+    file_basename: Filename,
+    *tracklists: Mapping[str, int]
 ) -> Sequence[sf.SoundFile]:
-    filenames = map(Mapping.values, tracklists)
-    tracklist = itertools.chain.from_iterable(filenames)
-    return [sf.SoundFile(filename) for filename in tracklist]
+    tracklists = map(Mapping.values, tracklists)
+    tracklist = itertools.chain.from_iterable(tracklists)
+    return [sf.SoundFile(f'{file_basename}-{n}.flac') for n in tracklist]
 
 
 def create_multitrack_file(
