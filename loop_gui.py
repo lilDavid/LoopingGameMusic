@@ -1,15 +1,13 @@
-import itertools
-import json
-import os.path
 import sys
 import tkinter as tk
 import tkinter.filedialog
 import tkinter.messagebox
+import traceback
 from tkinter import ttk
 from typing import Sequence, Tuple
 
 import loopaudio as la
-from get_brstm import SongInfo, SongVariantURL, get_brstms
+from get_brstm import SongInfo, SongVariantURL, create_song
 
 
 class UpdaterProgressBar():
@@ -314,15 +312,17 @@ class SCMImportGUI:
         file_panel.grid(row=0, sticky="NSEW")
 
     def start_conversion(self):
-        file = get_brstms(
-            os.path.splitext(self.file_name.get())[0],
-            [part.create_song_info() for part in self.parts],
-            None,
-            lambda e, file: tkinter.messagebox.showerror(
-                "Download error", "Could not download file: " + file + "\n" + str(e))
-        )
-        json.dump(file, open(self.file_name.get(), "w"))
-        tkinter.messagebox.showinfo(message="Loop created!")
+        try:
+            create_song(
+                self.file_name.get(),
+                [part.create_song_info() for part in self.parts]
+            )
+        except Exception as exc:
+            err = f'Could not create song files:\n{exc}'
+            traceback.print_exception(None, exc, exc.__traceback__)
+            tkinter.messagebox.showerror(message=err)
+        else:
+            tkinter.messagebox.showinfo(message="Loop created!")
     
     def add_part(self):
         partui = SongPartUI(self.part_ui, row=0, nb=self.part_ui, index=len(self.parts))
