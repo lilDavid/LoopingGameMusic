@@ -7,7 +7,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from threading import Event, Thread
-from typing import Any, AnyStr, Callable, Mapping, NamedTuple, Tuple, Union
+from typing import Any, Callable, Mapping, NamedTuple, Tuple, Union
 
 import mutagen
 import numpy as np
@@ -106,7 +106,7 @@ class SongTags:
 
     def to_str_list(self):
         def is_listable(obj):
-            return isinstance(obj, Sequence) and not isinstance(obj, AnyStr)
+            return isinstance(obj, Sequence) and not isinstance(obj, str)
 
         def list_form(item) -> Tuple[bool, str]:
             if is_listable(item):

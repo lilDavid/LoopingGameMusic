@@ -3,7 +3,7 @@ import locale
 import os
 import sys
 from collections.abc import Sequence, Mapping
-from typing import Iterable, NamedTuple, Union
+from typing import Iterable, Iterator, NamedTuple, Union
 import itertools
 
 import ffmpeg
@@ -26,12 +26,26 @@ class SongInfo(NamedTuple):
     variants: Sequence[SongVariantURL]
     layers: Sequence[SongVariantURL]
 
+    def iter_tracks(self) -> Iterator[SongVariantURL]:
+        return itertools.chain(self.variants, self.layers)
+    
+    def first_url(self):
+        return next(self.iter_tracks())
+
 
 class Metadata(NamedTuple):
     title: str = None
     loop_start: int = None
     loop_end: int = None
     samplerate: int = None
+
+    def override(self, base):
+        return Metadata(
+            self.title or base.title,
+            self.loop_start or base.loop_start,
+            self.loop_end or base.loop_end,
+            self.samplerate or base.samplerate
+        )
 
 
 Filename = str
@@ -58,12 +72,21 @@ def create_song_parts(
 
 def create_part(local_filename: Filename, songinfo: SongInfo) -> Mapping:
     metadata = get_file_information(songinfo, Metadata(title=songinfo.title))
+
     variant_map, layer_map = download_and_convert_brstms(
-        local_filename, songinfo)
+        local_filename,
+        songinfo
+    )
     files = list_track_filenames(variant_map, layer_map)
+
     filename = create_multitrack_file(
-        local_filename, songinfo, metadata, files)
+        local_filename,
+        songinfo,
+        metadata,
+        files
+    )
     add_metadata(metadata, filename)
+
     return {
         "version": 2,
         "name": songinfo.name,
@@ -74,20 +97,40 @@ def create_part(local_filename: Filename, songinfo: SongInfo) -> Mapping:
 
 
 def get_file_information(songinfo: SongInfo, overrides: Metadata) -> Metadata:
-    page = requests.get(songinfo.variants[0].url)
-    soup = BeautifulSoup(page.content, "html.parser")
-    brstm_info = soup.find(id="prevsub")
+    infotable = get_brstm_info_table(songinfo.first_url())
+    metadata = get_metadata_from_table(infotable)
+    return overrides.override(metadata)
 
+
+def get_brstm_info_table(url: str) -> BeautifulSoup:
+    soup = open_page(url)
+
+    brstm_info = soup.find(id="prevsub")
     info = brstm_info.find(id="prevleft")
     info = info.find_all("td")
+    return info
 
+
+def open_page(url) -> BeautifulSoup:
+    page = requests.get(url)
+    soup = BeautifulSoup(page.content, "html.parser")
+    return soup
+
+
+def get_metadata_from_table(table: BeautifulSoup) -> Metadata:
     prevloc = locale.getlocale(locale.LC_NUMERIC)
     locale.setlocale(locale.LC_NUMERIC, 'en_US.UTF-8')
-    loop_start = locale.atoi(info[33].text)
-    loop_end = locale.atoi(info[35].text)
-    samplerate = int(info[37].text)
+
+    loop_start = locale.atoi(table[33].text)
+    loop_end = locale.atoi(table[35].text)
+    samplerate = int(table[37].text)
+
     locale.setlocale(locale.LC_NUMERIC, prevloc)
-    return Metadata(overrides.title, loop_start, loop_end, samplerate)
+    return Metadata(
+        loop_start=loop_start,
+        loop_end=loop_end,
+        samplerate=samplerate
+    )
 
 
 def download_and_convert_brstms(
@@ -113,12 +156,6 @@ def download_tracks(
         convert_brstm(file_basename, i)
         track_map[track.name] = i
     return track_map
-
-
-def open_page(url) -> BeautifulSoup:
-    page = requests.get(url)
-    soup = BeautifulSoup(page.content, "html.parser")
-    return soup
 
 
 def download_brstm(soup: BeautifulSoup, filename: Filename) -> None:
@@ -158,7 +195,7 @@ def create_multitrack_file(
     files: Iterable[sf.SoundFile]
 ) -> Filename:
     songfile = create_sound_file(local_filename, songinfo, metadata.samplerate)
-    individual_files_to_one(files, songfile)
+    merge_sound_files(files, songfile)
     lengthen_file_if_needed(metadata, files, songfile)
     for file in files:
         file.close()
@@ -186,17 +223,15 @@ def create_sound_file(
     )
 
 
-def individual_files_to_one(
-    files: Iterable[sf.SoundFile],
-    songfile: sf.SoundFile
+def merge_sound_files(
+    separate_files: Iterable[sf.SoundFile],
+    single_file: sf.SoundFile
 ) -> None:
-    data = 'a'
+    datasize = 1
     chunk_size = 8192
     print('Copying audio data...')
-    while len(data):
-        data = read_chunk(songfile, files, chunk_size)
-        songfile.write(data)
-        songfile.flush()
+    while datasize:
+        datasize = copy_chunk(single_file, separate_files, chunk_size)
 
 
 def lengthen_file_if_needed(
@@ -210,18 +245,28 @@ def lengthen_file_if_needed(
         print('Padding file at the end...')
         for file in files:
             file.seek(metadata.loop_start)
-        songfile.write(read_chunk(songfile, files, 2048))
-        songfile.flush()
+        copy_chunk(songfile, files, 2048)
+
+
+def copy_chunk(
+    output_file: sf.SoundFile,
+    input_files: Iterable[sf.SoundFile],
+    size: int
+) -> None:
+    data = read_chunk(output_file, input_files, size)
+    output_file.write(data)
+    output_file.flush()
+    return len(data)
 
 
 def read_chunk(
-    infile: sf.SoundFile,
-    outfiles: Iterable[sf.SoundFile],
+    output_file: sf.SoundFile,
+    input_files: Iterable[sf.SoundFile],
     size: int
 ) -> np.ndarray:
-    data = np.ndarray((size, infile.channels), 'float64')
+    data = np.ndarray((size, output_file.channels), 'float64')
     maxlength = 0
-    for i, file in enumerate(outfiles):
+    for i, file in enumerate(input_files):
         fileread = file.read(size)
         maxlength = max(maxlength, len(fileread))
         data[:len(fileread), 2*i:2*(i+1)] = fileread
