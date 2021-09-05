@@ -426,7 +426,8 @@ class EditableListEntry:
 
         for i, var in enumerate(sequence):
             self.add_field_entry(i, var)
-        self.create_field_buttons(sequence)
+        self.create_field_buttons()
+        self.grid_field_buttons()
         
     def add_field_entry(self, row, var):
         entry = ttk.Entry(self.frame, textvariable=var)
@@ -532,7 +533,7 @@ class SongPartUI:
         button.grid(row=3, column=0, columnspan=2, sticky='E')
     
     def create_metadata_dialog(self, master):
-        window = self.create_window(master, 'Song metadata')
+        window = create_window(master, 'Song metadata')
         self.create_metadata_fields(window)
     
     def create_metadata_fields(self, master):
