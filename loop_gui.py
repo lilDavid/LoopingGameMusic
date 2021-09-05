@@ -1,5 +1,3 @@
-from dataclasses import dataclass
-from logging import disable
 import sys
 import tkinter as tk
 import tkinter.filedialog
@@ -408,6 +406,70 @@ class SongPartMetadata:
         )
 
 
+def create_window(master, title):
+    window = tk.Toplevel(master)
+    window.title(title)
+    return window
+
+
+def create_field(master, label, variable, row):
+    ttk.Label(master, text=label).grid(row=row, column=0)
+    entry = ttk.Entry(master, textvariable=variable)
+    entry.grid(row=row, column=1, sticky='EW')
+    return entry
+
+
+class EditableListEntry:
+    def __init__(self, master, sequence):
+        self.frame = tk.Frame(master)
+        self.sequence = sequence
+
+        for i, var in enumerate(sequence):
+            self.add_field_entry(i, var)
+        self.create_field_buttons(sequence)
+        
+    def add_field_entry(self, row, var):
+        entry = ttk.Entry(self.frame, textvariable=var)
+        entry.grid(row=row, columnspan=2, sticky='EW')
+    
+    def create_field_buttons(self):
+        self.add_button = ttk.Button(
+            self.frame,
+            text='+',
+            command=lambda: self.add_field
+        )
+        self.remove_button = ttk.Button(
+            self.frame,
+            text='-',
+            command=lambda: self.remove_field
+        )
+        disable_for_size(self.remove_button, self.sequence, 0)
+    
+    def grid_field_buttons(self):
+        self.add_button.grid(row=len(self.sequence), column=0)
+        self.remove_button.grid(row=len(self.sequence), column=1)
+        disable_for_size(self.remove_button, self.sequence, 0)
+        
+    def add_field(self):
+        var = tk.StringVar(self.frame)
+        self.sequence.append(var)
+        self.add_field_entry(len(self.sequence) - 1, var)
+        self.grid_field_buttons()
+    
+    def remove_field(self):
+        entries = self.frame.grid_slaves(row=len(self.sequence) - 1)
+        self.sequence.pop()
+        for entry in entries:
+            entry.destroy()
+        self.grid_field_buttons()
+
+
+def create_multi_field(master, label, sequence, row):
+    ttk.Label(master, text=label).grid(row=row, column=0, sticky='N')
+    EditableListEntry(master, sequence
+        ).frame.grid(row=row, column=1, sticky='NSEW')
+
+
 class SongPartUI:
 
     def __init__(self, master, row, nb: ttk.Notebook, index: int):
@@ -434,16 +496,10 @@ class SongPartUI:
         self.panel.columnconfigure(0, weight=1)
         self.panel.grid(row=row, sticky="NSEW")
 
-    def create_field(self, master, label, variable, row):
-        ttk.Label(master, text=label).grid(row=row, column=0)
-        entry = ttk.Entry(master, textvariable=variable)
-        entry.grid(row=row, column=1, sticky='EW')
-        return entry
-
     def create_description_panel(self, nb, index):
         name_panel = tk.LabelFrame(self.panel, text="Information")
         self.metadata = SongPartMetadata(name_panel)
-        self.create_field(name_panel, 'Title:', self.metadata.title, 0)
+        create_field(name_panel, 'Title:', self.metadata.title, 0)
         self.create_part_name_entry(nb, index, name_panel)
         self.create_filename_field(name_panel)
         self.create_metadata_button(name_panel)
@@ -455,16 +511,17 @@ class SongPartUI:
             nb.tab(index + 1, text=self.part_name.get() or "<untitled>")
 
         self.part_name = tk.StringVar(self.panel)
-        name_entry = self.create_field(
+        name_entry = create_field(
             master,
             'Part name:',
-            self.part_name, 1
+            self.part_name,
+            1
         )
         name_entry.bind("<FocusOut>", set_widget_name)
     
     def create_filename_field(self, master):
         self.filename = tk.StringVar(self.panel)
-        self.create_field(master, 'Filename:', self.filename, 2)
+        create_field(master, 'Filename:', self.filename, 2)
     
     def create_metadata_button(self, master):
         button = ttk.Button(
@@ -479,62 +536,12 @@ class SongPartUI:
         self.create_metadata_fields(window)
     
     def create_metadata_fields(self, master):
-        self.create_field(master, 'Title:', self.metadata.title, 0)
-        self.create_multi_field(master, 'Artist:', self.metadata.artists, 1)
-        self.create_field(master, 'Album:', self.metadata.album, 2)
-        self.create_field(master, 'Track number:', self.metadata.number, 3)
-        self.create_field(master, 'Year:', self.metadata.year, 4)
-        self.create_multi_field(master, 'Game:', self.metadata.games, 5)
-    
-    def create_multi_field(self, master, label, sequence, row):
-        ttk.Label(master, text=label).grid(row=row, column=0, sticky='N')
-        list_frame = tk.Frame(master)
-        list_frame.grid(row=row, column=1, sticky='NSEW')
-        for i, var in enumerate(sequence):
-            self.add_field_entry(list_frame, i, var)
-        addb, remb = self.create_field_buttons(list_frame, sequence)
-        self.grid_field_buttons(addb, remb, sequence)
-    
-    def create_field_buttons(self, master, sequence):
-        add = ttk.Button(
-            master,
-            text='+',
-            command=lambda: self.add_field(master, sequence, add, remove)
-        )
-        remove = ttk.Button(
-            master,
-            text='-',
-            command=lambda: self.remove_field(master, sequence, add, remove),
-        )
-        disable_for_size(remove, sequence, 0)
-        return add, remove
-    
-    def add_field(self, master, sequence, addbtn, rembtn):
-        var = tk.StringVar(master)
-        sequence.append(var)
-        self.add_field_entry(master, len(sequence) - 1, var)
-        self.grid_field_buttons(addbtn, rembtn, sequence)
-
-    def add_field_entry(self, master, row, var):
-        entry = ttk.Entry(master, textvariable=var)
-        entry.grid(row=row, columnspan=2, sticky='EW')
-    
-    def remove_field(self, master: tk.Widget, sequence, addbtn, rembtn):
-        entries = master.grid_slaves(row=len(sequence) - 1)
-        sequence.pop()
-        for entry in entries:
-            entry.destroy()
-        self.grid_field_buttons(addbtn, rembtn, sequence)
-
-    def grid_field_buttons(self, addbtn, rembtn, seq):
-        addbtn.grid(row=len(seq), column=0)
-        rembtn.grid(row=len(seq), column=1)
-        disable_for_size(rembtn, seq, 0)
-
-    def create_window(self, master, title):
-        window = tk.Toplevel(master)
-        window.title(title)
-        return window
+        create_field(master, 'Title:', self.metadata.title, 0)
+        create_multi_field(master, 'Artist:', self.metadata.artists, 1)
+        create_field(master, 'Album:', self.metadata.album, 2)
+        create_field(master, 'Track number:', self.metadata.number, 3)
+        create_field(master, 'Year:', self.metadata.year, 4)
+        create_multi_field(master, 'Game:', self.metadata.games, 5)
 
     def create_track_panel(
         self,
