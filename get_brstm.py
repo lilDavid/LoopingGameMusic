@@ -19,33 +19,33 @@ class SongVariantURL(NamedTuple):
     url: str
 
 
-class SongInfo(NamedTuple):
-    name: str
-    title: str
-    file: str
-    variants: Sequence[SongVariantURL]
-    layers: Sequence[SongVariantURL]
-
-    def iter_tracks(self) -> Iterator[SongVariantURL]:
-        return itertools.chain(self.variants, self.layers)
-    
-    def first_url(self):
-        return next(self.iter_tracks())
-
-
 class Metadata(NamedTuple):
     title: str = None
+    artist: Union[str, Sequence] = None
+    album: str = None
+    track_number: str = None
+    year: str = None
+    game: Union[str, Sequence] = None
     loop_start: int = None
     loop_end: int = None
     samplerate: int = None
 
     def override(self, base):
-        return Metadata(
-            self.title or base.title,
-            self.loop_start or base.loop_start,
-            self.loop_end or base.loop_end,
-            self.samplerate or base.samplerate
-        )
+        return Metadata(*(s or b for s, b in zip(self, base)))
+
+
+class SongInfo(NamedTuple):
+    name: str
+    file: str
+    meta: Metadata
+    variants: Sequence[SongVariantURL]
+    layers: Sequence[SongVariantURL]
+
+    def iter_tracks(self) -> Iterator[SongVariantURL]:
+        return itertools.chain(self.variants, self.layers)
+
+    def first_url(self):
+        return next(self.iter_tracks()).url
 
 
 Filename = str
@@ -62,7 +62,7 @@ def create_song(
 
 def create_song_parts(
     local_filename: Filename,
-    info: Union[SongInfo, Iterable[SongInfo]]
+    info: Union[SongInfo, Iterable[SongInfo]],
 ) -> Sequence[Mapping]:
     if isinstance(info, SongInfo):
         return [create_part(local_filename, info)]
@@ -70,14 +70,17 @@ def create_song_parts(
         return [create_part(local_filename, songinfo) for songinfo in info]
 
 
-def create_part(local_filename: Filename, songinfo: SongInfo) -> Mapping:
-    metadata = get_file_information(songinfo, Metadata(title=songinfo.title))
+def create_part(
+    local_filename: Filename,
+    songinfo: SongInfo
+) -> Mapping:
+    metadata = get_file_information(songinfo)
 
     variant_map, layer_map = download_and_convert_brstms(
         local_filename,
         songinfo
     )
-    files = list_track_filenames(variant_map, layer_map)
+    files = list_track_filenames(local_filename, variant_map, layer_map)
 
     filename = create_multitrack_file(
         local_filename,
@@ -96,10 +99,10 @@ def create_part(local_filename: Filename, songinfo: SongInfo) -> Mapping:
     }
 
 
-def get_file_information(songinfo: SongInfo, overrides: Metadata) -> Metadata:
+def get_file_information(songinfo: SongInfo) -> Metadata:
     infotable = get_brstm_info_table(songinfo.first_url())
     metadata = get_metadata_from_table(infotable)
-    return overrides.override(metadata)
+    return songinfo.meta.override(metadata)
 
 
 def get_brstm_info_table(url: str) -> BeautifulSoup:
@@ -120,13 +123,20 @@ def open_page(url) -> BeautifulSoup:
 def get_metadata_from_table(table: BeautifulSoup) -> Metadata:
     prevloc = locale.getlocale(locale.LC_NUMERIC)
     locale.setlocale(locale.LC_NUMERIC, 'en_US.UTF-8')
-
-    loop_start = locale.atoi(table[33].text)
-    loop_end = locale.atoi(table[35].text)
+    
+    game = table[1].text.strip()
+    title = table[3].text.strip()
+    if table[31].text == 'Song Does Not Loop':
+        loop_start = loop_end = None
+    else:
+        loop_start = locale.atoi(table[33].text)
+        loop_end = locale.atoi(table[35].text)
     samplerate = int(table[37].text)
 
     locale.setlocale(locale.LC_NUMERIC, prevloc)
     return Metadata(
+        title=title,
+        game=game,
         loop_start=loop_start,
         loop_end=loop_end,
         samplerate=samplerate
@@ -139,18 +149,19 @@ def download_and_convert_brstms(
 ) -> tuple[Mapping, ...]:
     print('Downloading BRSTM files...')
 
-    variant_map = download_tracks(file_basename, songinfo.variants)
-    layer_map = download_tracks(file_basename, songinfo.layers)
+    variants = download_tracks(file_basename, songinfo.variants)
+    layers = download_tracks(file_basename, songinfo.layers, len(variants))
 
-    return variant_map, layer_map
+    return variants, layers
 
 
 def download_tracks(
     file_basename: Filename,
-    tracklist: Sequence[SongVariantURL]
+    tracklist: Sequence[SongVariantURL],
+    start: int = 0
 ) -> Mapping[str, int]:
     track_map = {}
-    for i, track in enumerate(tracklist):
+    for i, track in enumerate(tracklist, start):
         soup = open_page(track.url)
         download_brstm(soup, file_basename)
         convert_brstm(file_basename, i)
@@ -278,6 +289,10 @@ def add_metadata(metadata: Metadata, filename: Filename) -> None:
 
     tags = mutagen.File(filename)
     tags['title'] = [metadata.title]
+    if isinstance(metadata.game, str):
+        tags['game'] = [metadata.game]
+    elif metadata.game is not None:
+        tags['game'] = metadata.game
     tags['loopstart'] = [str(metadata.loop_start)]
     tags['looplength'] = [str(metadata.loop_end - metadata.loop_start)]
 

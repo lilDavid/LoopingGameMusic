@@ -1,13 +1,15 @@
+from dataclasses import dataclass
+from logging import disable
 import sys
 import tkinter as tk
 import tkinter.filedialog
 import tkinter.messagebox
 import traceback
 from tkinter import ttk
-from typing import Sequence, Tuple
+from typing import Sequence, Sized, Tuple
 
 import loopaudio as la
-from get_brstm import SongInfo, SongVariantURL, create_song
+from get_brstm import Metadata, SongInfo, SongVariantURL, create_song
 
 
 class UpdaterProgressBar():
@@ -255,41 +257,86 @@ class SCMImportGUI:
 
     def __init__(self, master: tk.Tk):
         master.title("SmashCustomMusic import")
+        self.build_file_panel(master)
+        self.initialize_parts(master)
+        master.rowconfigure(1, weight=1)
+        master.columnconfigure(0, weight=1)
+        master.configure(padx=8, pady=5)
 
-        self._build_file_panel(master)
-
+    def initialize_parts(self, master):
         self.parts = []
+        self.create_part_panel(master)
+        self.add_part()
+        self.part_ui.select(1)
+
+    def create_part_panel(self, master):
         self.part_ui = ttk.Notebook(master)
         self.part_ui.grid(row=1, sticky="NSEW")
+        manage = self.create_part_management()
+        self.part_ui.add(manage, text="Manage parts")
 
-        # Part manager
+    def create_part_management(self):
         manage = tk.Frame(self.part_ui)
         tk.Label(
             manage,
             text="Each part is a separate loop with its own variants and layers."
         ).pack(side="top")
-        self.add_part_button = ttk.Button(manage, text="Add new part", command=self.add_part)
-        self.add_part_button.pack(side="top")
-        self.remove_part_button = ttk.Button(
-            manage, default="disabled",
+
+        self.add_part_button = self.create_part_button(
+            manage,
+            text="Add new part",
+            command=self.add_part
+        )
+        self.remove_part_button = self.create_part_button(
+            manage,
+            default="disabled",
             text="Remove last part",
             command=self.remove_part
         )
-        self.remove_part_button.pack(side="top")
+
         manage.grid(row=0)
-        self.part_ui.add(manage, text="Manage parts")
-        self.add_part()
-        self.part_ui.select(1)
+        return manage
+    
+    def create_part_button(self, *args, **kwargs):
+        button = ttk.Button(*args, **kwargs)
+        button.pack(side='top')
+        return button
 
-        master.rowconfigure(1, weight=1)
-        master.columnconfigure(0, weight=1)
-        master.configure(padx=8, pady=5)
-
-    def _build_file_panel(self, master):
+    def build_file_panel(self, master):
         file_panel = tk.LabelFrame(master, text="File")
+        self.create_file_selector(file_panel)
+        self.create_conversion_start(file_panel)
+        file_panel.columnconfigure(0, weight=1)
+        file_panel.grid(row=0, sticky="NSEW")
 
-        # Base file location
-        file_field = tk.Frame(file_panel)
+    def create_conversion_start(self, master):
+        conversion_start = tk.Frame(master)
+        self.create_use_json_check(conversion_start)
+        self.create_start_button(conversion_start)
+        conversion_start.columnconfigure(0, weight=1)
+        conversion_start.grid(row=1, sticky="EW")
+
+    def create_start_button(self, master):
+        ttk.Button(
+            master,
+            text="Start conversion",
+            command=self.start_conversion
+        ).grid(row=0, column=1, sticky='E')
+
+    def create_use_json_check(self, master):
+        self.use_json = tk.BooleanVar(master)
+        json_btn = ttk.Checkbutton(
+            master,
+            text='Use JSON',
+            offvalue=False,
+            onvalue=True,
+            variable=self.use_json
+        )
+        json_btn.grid(row=0, column=0, sticky='W', padx=5)
+        self.use_json.set(True)
+
+    def create_file_selector(self, master):
+        file_field = tk.Frame(master)
         self.file_name = tk.StringVar(file_field)
         tk.Label(file_field, text="File name").grid(row=0, column=0)
         tk.Entry(file_field, textvariable=self.file_name).grid(
@@ -303,32 +350,6 @@ class SCMImportGUI:
         ).grid(row=0, column=2)
         file_field.columnconfigure(1, weight=1)
         file_field.grid(row=0, sticky="EW")
-
-        conversion_start = tk.Frame(file_panel)
-
-        # 'Use JSON' checkbox
-        self.use_json = tk.BooleanVar(conversion_start)
-        json_btn = ttk.Checkbutton(
-            conversion_start,
-            text='Use JSON',
-            offvalue=False,
-            onvalue=True,
-            variable=self.use_json
-        )
-        json_btn.grid(row=0, column=0, sticky='W', padx=5)
-        self.use_json.set(True)
-
-        # Start!
-        ttk.Button(
-            conversion_start,
-            text="Start conversion",
-            command=self.start_conversion
-        ).grid(row=0, column=1, sticky='E')
-        conversion_start.columnconfigure(0, weight=1)
-        conversion_start.grid(row=1, sticky="EW")
-
-        file_panel.columnconfigure(0, weight=1)
-        file_panel.grid(row=0, sticky="NSEW")
 
     def start_conversion(self):
         try:
@@ -344,18 +365,47 @@ class SCMImportGUI:
             tkinter.messagebox.showinfo(message="Loop created!")
     
     def add_part(self):
-        partui = SongPartUI(self.part_ui, row=0, nb=self.part_ui, index=len(self.parts))
+        partui = SongPartUI(
+            self.part_ui,
+            row=0,
+            nb=self.part_ui,
+            index=len(self.parts)
+        )
         self.parts.append(partui)
         self.part_ui.add(partui.panel, text="<untitled>")
-        self.remove_part_button.state(
-            ["!disabled"] if len(self.parts) > 1 else ["disabled"])
+        disable_for_size(self.remove_part_button, self.parts, 1)
     
     def remove_part(self):
-        partui = self.parts[-1]
-        self.parts.pop()
+        partui = self.parts.pop()
         partui.panel.destroy()
-        self.remove_part_button.state(["!disabled"] if len(
-            self.parts) > 1 else ["disabled"])
+        disable_for_size(self.remove_part_button, self.parts, 1)
+
+
+def disable_for_size(button: ttk.Button, collection: Sized, minsize: int):
+    state = '!' if len(collection) > minsize else ''
+    button.state([f'{state}disabled'])
+
+
+class SongPartMetadata:
+    def __init__(self, master):
+        self.master = master
+
+        self.title = tk.StringVar(master)
+        self.artists = []
+        self.album = tk.StringVar(master)
+        self.number = tk.StringVar(master)
+        self.year = tk.StringVar(master)
+        self.games = []
+    
+    def to_get_brstm_meta(self):
+        return Metadata(
+            title=self.title.get(),
+            artist=[a.get() for a in self.artists],
+            album=self.album.get(),
+            track_number=self.number.get(),
+            year=self.year.get(),
+            game=[g.get() for g in self.games]
+        )
 
 
 class SongPartUI:
@@ -363,114 +413,198 @@ class SongPartUI:
     def __init__(self, master, row, nb: ttk.Notebook, index: int):
         self.panel = tk.Frame(master)
 
-        # Names and files
-        name_panel = tk.LabelFrame(self.panel, text="Information")
-        self.title = tk.StringVar(self.panel)
-        tk.Label(name_panel, text="Title:").grid(row=0, column=0)
-        tk.Entry(name_panel, textvariable=self.title).grid(
-            row=0, column=1, sticky="EW")
-        name_panel.grid(row=0, sticky="EW")
-
-        def set_widget_name(*_):
-            nb.tab(index + 1, text = self.short_name.get() or "<untitled>")
-
-        self.short_name = tk.StringVar(self.panel)
-        tk.Label(name_panel, text="Part name:").grid(row=1, column=0)
-        name_entry = tk.Entry(name_panel, textvariable=self.short_name)
-        name_entry.bind("<FocusOut>", set_widget_name)
-        name_entry.grid(row=1, column=1, sticky="EW")
-
-        self.filename = tk.StringVar(self.panel)
-        tk.Label(name_panel, text="Filename:").grid(row=2, column=0)
-        tk.Entry(name_panel, textvariable=self.filename).grid(row=2, column=1, sticky='EW')
-
-        name_panel.columnconfigure(1, weight=1)
-
-        # Variants
-        self.variant_panel = tk.LabelFrame(self.panel, text="Variants")
-        self.variants = []
-        tk.Label(
-                self.variant_panel,
-                text="Different versions of the same song. Only one plays at at time."
-            ).grid(
-            row=0, columnspan=2)
-        tk.Label(self.variant_panel, text="Variant name").grid(
-            row=1, column=0, sticky="W")
-        tk.Label(self.variant_panel, text="BRSTM page").grid(
-            row=1, column=1, sticky="W")
-        add_var_button = ttk.Button(
-            self.variant_panel,
-            command=lambda: self.push_field(
-                self.variant_panel, self.variants, add_var_button, remove_var_button, 1),
-            text="+")
-        remove_var_button = ttk.Button(
-            self.variant_panel,
-            command=lambda: self.pop_field(
-                self.variants, add_var_button, remove_var_button, 1),
-            text="-")
-        self.push_field(
-            self.variant_panel, self.variants, add_var_button, remove_var_button, 1)
-
-        self.variant_panel.columnconfigure(0, weight=1)
-        self.variant_panel.columnconfigure(1, weight=1)
-        self.variant_panel.grid(row=3, sticky="NSEW")
-
-        # Layers
-        self.layer_panel = tk.LabelFrame(self.panel, text="Layers")
-        self.layers = []
-        tk.Label(
-            self.layer_panel,
-            text="Any combination of layers may play over the selected variant."
-        ).grid(row=0, columnspan=2)
-        tk.Label(self.layer_panel, text="Layer name").grid(
-            row=1, column=0, sticky="W")
-        tk.Label(self.layer_panel, text="BRSTM page").grid(
-            row=1, column=1, sticky="W")
-        add_lay_button = ttk.Button(
-            self.layer_panel,
-            command=lambda: self.push_field(
-                self.layer_panel, self.layers, add_lay_button, remove_lay_button, 0),
-            text="+")
-        remove_lay_button = ttk.Button(
-            self.layer_panel,
-            command=lambda: self.pop_field(
-                self.layers, add_lay_button, remove_lay_button, 0),
-            text="-")
-        self.grid_buttons(add_lay_button, remove_lay_button, 0, 0)
-
-        self.layer_panel.columnconfigure(0, weight=1)
-        self.layer_panel.columnconfigure(1, weight=1)
-        self.layer_panel.grid(row=4, sticky="NSEW")
+        self.create_description_panel(nb, index)
+        self.variant_panel, self.variants = self.create_track_panel(
+            label='Variant',
+            description=('Different versions of the same song. '
+                + 'Only one plays at at time.'),
+            row=3,
+            minlength=1
+        )
+        self.layer_panel, self.layers = self.create_track_panel(
+            label='Layer',
+            description=('Any combination of layers may play'
+                + 'over the selected variant.'),
+            row=4,
+            minlength=0
+        )
 
         self.panel.rowconfigure(3, weight=1)
         self.panel.rowconfigure(4, weight=1)
         self.panel.columnconfigure(0, weight=1)
         self.panel.grid(row=row, sticky="NSEW")
+
+    def create_field(self, master, label, variable, row):
+        ttk.Label(master, text=label).grid(row=row, column=0)
+        entry = ttk.Entry(master, textvariable=variable)
+        entry.grid(row=row, column=1, sticky='EW')
+        return entry
+
+    def create_description_panel(self, nb, index):
+        name_panel = tk.LabelFrame(self.panel, text="Information")
+        self.metadata = SongPartMetadata(name_panel)
+        self.create_field(name_panel, 'Title:', self.metadata.title, 0)
+        self.create_part_name_entry(nb, index, name_panel)
+        self.create_filename_field(name_panel)
+        self.create_metadata_button(name_panel)
+        name_panel.columnconfigure(1, weight=1)
+        name_panel.grid(row=0, sticky="EW")
     
-    def grid_buttons(self, add, remove, row, requirement):
-        add.grid(
-            row=row + 2, column=0, sticky="EW")
-        remove.grid(
-            row=row + 2, column=1, sticky="EW")
-        remove.state(
-            ["disabled" if row <= requirement else "!disabled"])
+    def create_part_name_entry(self, nb, index, master):
+        def set_widget_name(*_):
+            nb.tab(index + 1, text=self.part_name.get() or "<untitled>")
+
+        self.part_name = tk.StringVar(self.panel)
+        name_entry = self.create_field(
+            master,
+            'Part name:',
+            self.part_name, 1
+        )
+        name_entry.bind("<FocusOut>", set_widget_name)
+    
+    def create_filename_field(self, master):
+        self.filename = tk.StringVar(self.panel)
+        self.create_field(master, 'Filename:', self.filename, 2)
+    
+    def create_metadata_button(self, master):
+        button = ttk.Button(
+            master,
+            command=lambda: self.create_metadata_dialog(master),
+            text='Other metadata...'
+        )
+        button.grid(row=3, column=0, columnspan=2, sticky='E')
+    
+    def create_metadata_dialog(self, master):
+        window = self.create_window(master, 'Song metadata')
+        self.create_metadata_fields(window)
+    
+    def create_metadata_fields(self, master):
+        self.create_field(master, 'Title:', self.metadata.title, 0)
+        self.create_multi_field(master, 'Artist:', self.metadata.artists, 1)
+        self.create_field(master, 'Album:', self.metadata.album, 2)
+        self.create_field(master, 'Track number:', self.metadata.number, 3)
+        self.create_field(master, 'Year:', self.metadata.year, 4)
+        self.create_multi_field(master, 'Game:', self.metadata.games, 5)
+    
+    def create_multi_field(self, master, label, sequence, row):
+        ttk.Label(master, text=label).grid(row=row, column=0, sticky='N')
+        list_frame = tk.Frame(master)
+        list_frame.grid(row=row, column=1, sticky='NSEW')
+        for i, var in enumerate(sequence):
+            self.add_field_entry(list_frame, i, var)
+        addb, remb = self.create_field_buttons(list_frame, sequence)
+        self.grid_field_buttons(addb, remb, sequence)
+    
+    def create_field_buttons(self, master, sequence):
+        add = ttk.Button(
+            master,
+            text='+',
+            command=lambda: self.add_field(master, sequence, add, remove)
+        )
+        remove = ttk.Button(
+            master,
+            text='-',
+            command=lambda: self.remove_field(master, sequence, add, remove),
+        )
+        disable_for_size(remove, sequence, 0)
+        return add, remove
+    
+    def add_field(self, master, sequence, addbtn, rembtn):
+        var = tk.StringVar(master)
+        sequence.append(var)
+        self.add_field_entry(master, len(sequence) - 1, var)
+        self.grid_field_buttons(addbtn, rembtn, sequence)
+
+    def add_field_entry(self, master, row, var):
+        entry = ttk.Entry(master, textvariable=var)
+        entry.grid(row=row, columnspan=2, sticky='EW')
+    
+    def remove_field(self, master: tk.Widget, sequence, addbtn, rembtn):
+        entries = master.grid_slaves(row=len(sequence) - 1)
+        sequence.pop()
+        for entry in entries:
+            entry.destroy()
+        self.grid_field_buttons(addbtn, rembtn, sequence)
+
+    def grid_field_buttons(self, addbtn, rembtn, seq):
+        addbtn.grid(row=len(seq), column=0)
+        rembtn.grid(row=len(seq), column=1)
+        disable_for_size(rembtn, seq, 0)
+
+    def create_window(self, master, title):
+        window = tk.Toplevel(master)
+        window.title(title)
+        return window
+
+    def create_track_panel(
+        self,
+        label,
+        description,
+        row,
+        minlength
+    ):
+        panel = tk.LabelFrame(self.panel, text=f'{label}s')
+        tracks = []
+
+        tk.Label(panel, text=description).grid(row=0, columnspan=2)
+        self.create_table_header(label, panel)
+        add_button, remove_button = self.create_track_buttons(minlength, panel, tracks)
+        self.grid_buttons(add_button, remove_button, tracks, minlength)
+        for _ in range(minlength):
+            self.push_field(panel, tracks, add_button, remove_button, minlength)
+
+        panel.columnconfigure(0, weight=1)
+        panel.columnconfigure(1, weight=1)
+        panel.grid(row=row, sticky="NSEW")
+
+        return panel, tracks
+
+    def create_table_header(self, label, panel):
+        tk.Label(panel, text=f'{label} name').grid(
+            row=1, column=0, sticky="W")
+        tk.Label(panel, text="BRSTM page").grid(
+            row=1, column=1, sticky="W")
+
+    def create_track_buttons(self, minlength, panel, tracks):
+        add_button = ttk.Button(
+            panel,
+            command=lambda: self.push_field(
+                panel, tracks, add_button, remove_button, minlength),
+            text="+")
+        remove_button = ttk.Button(
+            panel,
+            command=lambda: self.pop_field(
+                tracks, add_button, remove_button, minlength),
+            text="-")
+            
+        return add_button, remove_button
+    
+    def grid_buttons(self, add, remove, collection, minsize):
+        row = len(collection) + 2
+        add.grid(row=row, column=0, sticky="EW")
+        remove.grid(row=row, column=1, sticky="EW")
+        disable_for_size(remove, collection, minsize)
 
     def push_field(self,
                    panel: tk.PanedWindow,
                    rowdata: Sequence[tuple],
                    addbutton: ttk.Button,
                    removebutton: ttk.Button,
-                   requirement: int
+                   minsize: int
                   ):
         name = tk.StringVar(panel)
         url = tk.StringVar(panel)
-        nfield = tk.Entry(panel, textvariable=name)
-        nfield.grid(row=len(rowdata) + 2, column=0, sticky="EW")
-        ufield = tk.Entry(panel, textvariable=url)
-        ufield.grid(row=len(rowdata) + 2, column=1, sticky="EW")
+        row = len(rowdata) + 2
+        nfield = self.create_track_entry(panel, name, row, 0)
+        ufield = self.create_track_entry(panel, url, row, 1)
         rowdata.append((name, url, nfield, ufield))
 
-        self.grid_buttons(addbutton, removebutton, len(rowdata), requirement)
+        self.grid_buttons(addbutton, removebutton, rowdata, minsize)
+    
+    def create_track_entry(self, master, variable, row, column):
+        entry = tk.Entry(master, textvariable=variable)
+        entry.grid(row=row, column=column, sticky="EW")
+        return entry
 
     def pop_field(self,
                   rowdata: Sequence[tuple],
@@ -479,15 +613,15 @@ class SongPartUI:
                   requirement: int
                  ):
         item = rowdata.pop()
-        self.grid_buttons(addbutton, removebutton, len(rowdata), requirement)
+        self.grid_buttons(addbutton, removebutton, rowdata, requirement)
         for i in item[2:4]:
             i.destroy()
     
-    def get_short_name(self) -> str:
-        return self.short_name.get()
-    
+    def get_part_name(self) -> str:
+        return self.part_name.get()
+
     def get_title(self) -> str:
-        return self.title.get()
+        return self.metadata.title
     
     def get_variants(self) -> Sequence[Tuple]:
         return [(var[0].get(), var[1].get()) for var in self.variants]
@@ -497,9 +631,9 @@ class SongPartUI:
     
     def create_song_info(self) -> SongInfo:
         return SongInfo(
-            self.short_name.get(),
-            self.title.get(),
+            self.part_name.get(),
             self.filename.get(),
+            self.metadata.to_get_brstm_meta(),
             [SongVariantURL(var[0], var[1]) for var in self.get_variants()],
             [SongVariantURL(lay[0], lay[1]) for lay in self.get_layers()]
         )
