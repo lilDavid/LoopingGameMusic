@@ -586,7 +586,6 @@ def open_loop(
 
 def open_loops(
     filename: str,
-    errhand: Callable = ...,
     buffersize: int = 20,
     blocksize: int = 2048
 ) -> Sequence[SongLoop]:
@@ -605,14 +604,6 @@ def open_loops(
                 'version': 2,
                 'layers': ...}
             ]
-    # except FileNotFoundError as e:
-    #     if errhand is None:
-    #         pass
-    #     elif errhand is ...:
-    #         print(e)
-    #     else:
-    #         errhand(file, e)
-    #     return
 
     loops = []
     for info in file_list:

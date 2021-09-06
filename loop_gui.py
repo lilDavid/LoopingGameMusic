@@ -158,12 +158,11 @@ class LoopGUI:
             widget.destroy()
 
         self.songs = []
-        loops = la.open_loops(
-            input_file,
-            lambda file, *_: tkinter.messagebox.showerror(
-                "Could not open file", f"File '{file}' does not exist"
-            )
-        )
+        try:
+            loops = la.open_loops(input_file)
+        except Exception as exc:
+            dialog_and_print_error(exc, 'Could not load song')
+            loops = []
         for num, song in enumerate(loops, start=1):
             song_record = {
                 "name": song.name,
@@ -249,6 +248,12 @@ class LoopGUI:
             widget.destroy()
         for widget in self.layer_pane.winfo_children():
             widget.destroy()
+
+
+def dialog_and_print_error(exception, message='An error occurred'):
+    err = f'{message}:\n{exception}'
+    traceback.print_exception(None, exception, exception.__traceback__)
+    tkinter.messagebox.showerror(message=err)
 
 
 class SCMImportGUI:
@@ -356,9 +361,7 @@ class SCMImportGUI:
                 [part.create_song_info() for part in self.parts]
             )
         except Exception as exc:
-            err = f'Could not create song files:\n{exc}'
-            traceback.print_exception(None, exc, exc.__traceback__)
-            tkinter.messagebox.showerror(message=err)
+            dialog_and_print_error(exc, 'Could not create song files')
         else:
             tkinter.messagebox.showinfo(message="Loop created!")
     
