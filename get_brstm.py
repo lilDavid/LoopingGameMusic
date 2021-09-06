@@ -2,8 +2,9 @@ import json
 import locale
 import os
 import sys
-from collections.abc import Sequence
-from typing import Callable, Iterable, NamedTuple, Union
+from collections.abc import Sequence, Mapping
+from typing import Iterable, Iterator, NamedTuple, Union
+import itertools
 
 import ffmpeg
 import mutagen
@@ -11,7 +12,6 @@ import numpy as np
 import requests
 import soundfile as sf
 from bs4 import BeautifulSoup
-from requests import HTTPError
 
 
 class SongVariantURL(NamedTuple):
@@ -19,161 +19,286 @@ class SongVariantURL(NamedTuple):
     url: str
 
 
+class Metadata(NamedTuple):
+    title: str = None
+    artist: Union[str, Sequence] = None
+    album: str = None
+    track_number: str = None
+    year: str = None
+    game: Union[str, Sequence] = None
+    loop_start: int = None
+    loop_end: int = None
+    samplerate: int = None
+
+    def override(self, base):
+        return Metadata(*(s or b for s, b in zip(self, base)))
+
+
 class SongInfo(NamedTuple):
     name: str
-    title: str
     file: str
+    meta: Metadata
     variants: Sequence[SongVariantURL]
     layers: Sequence[SongVariantURL]
 
+    def iter_tracks(self) -> Iterator[SongVariantURL]:
+        return itertools.chain(self.variants, self.layers)
 
-def get_brstms(
-    local_filename: str,
-    info: Union[SongInfo, Sequence[SongInfo]],
-    logout=sys.stdout,
-    err_handle: Callable = ...
-) -> dict:
-    if err_handle is None:
-        def ignore(*_):
-            pass
-        err_handle = ignore
-    if err_handle is Ellipsis:
-        def default_handle(e, link, *_):
-            print("Could not download", link, e)
-        err_handle = default_handle
-    
+    def first_url(self):
+        return next(self.iter_tracks()).url
+
+
+Filename = str
+
+
+def create_song(
+    json_file: Filename,
+    info: Union[SongInfo, Iterable[SongInfo]]
+) -> None:
+    parts = create_song_parts(os.path.splitext(json_file)[0], info)
+    parts = parts[0] if len(parts) == 1 else parts
+    json.dump(parts, open(json_file, "w"))
+
+
+def create_song_parts(
+    local_filename: Filename,
+    info: Union[SongInfo, Iterable[SongInfo]],
+) -> Sequence[Mapping]:
     if isinstance(info, SongInfo):
-        info = [info]
-    songs = []
-
-    for songinfo in info:
-        page = requests.get(songinfo.variants[0].url)
-        soup = BeautifulSoup(page.content, "html.parser")
-        brstm_info = soup.find(id="prevsub")
-
-        info = brstm_info.find(id="prevleft")
-        info = info.find_all("td")
-        
-        prevloc = locale.getlocale(locale.LC_NUMERIC)
-        locale.setlocale(locale.LC_NUMERIC, 'en_US.UTF-8')
-        loop_start = locale.atoi(info[33].text)
-        loop_end = locale.atoi(info[35].text)
-        samplerate = int(info[37].text)
-        locale.setlocale(locale.LC_NUMERIC, prevloc)
-        
-        dirname = os.path.dirname(local_filename)
-        if dirname:
-            dirname += '/'
-
-        songfile = sf.SoundFile(
-            dirname + songinfo.file,
-            mode='w',
-            samplerate=samplerate,
-            channels=(len(songinfo.variants) + len(songinfo.layers)) * 2,
-            format='OGG'
-        )
-
-        def download_brstm(soup: BeautifulSoup, number: int):
-            soup = soup.find(id="brstmdl")
-            soup = soup.find_all("a")[0]
-            brstm_link = "https://web.archive.org/" + soup.attrs["href"]
-            print("Downloading file: " + brstm_link, file=logout)
-            with requests.get(brstm_link, stream=True) as request:
-                try:
-                    request.raise_for_status()
-                except HTTPError as e:
-                    err_handle(e, brstm_link)
-                    return
-
-                brstm_filename = f'{local_filename}-{number}'
-
-                with open(brstm_filename + '.brstm', "wb") as file:
-                    for chunk in request.iter_content(chunk_size=8192):
-                        file.write(chunk)
-                try:
-                    ffmpeg.input(brstm_filename + '.brstm').output(
-                        brstm_filename + '.flac').run(overwrite_output=True)
-                except ffmpeg.Error as e:
-                    err_handle(e, brstm_link)
-        
-        print('Downloading BRSTM files...')
-
-        variant_map = {}
-        for i, variant in enumerate(songinfo.variants):
-            page = requests.get(variant.url)
-            soup = BeautifulSoup(page.content, "html.parser")
-            download_brstm(soup, i)
-            variant_map[variant.name] = i
-
-        layer_map = {}
-        for i, layer in enumerate(songinfo.layers):
-            page = requests.get(layer.url)
-            soup = BeautifulSoup(page.content, "html.parser")
-            download_brstm(soup, i)
-            layer_map[layer.name] = i
-
-        files: list[sf.SoundFile] = []
-        for i in range(songfile.channels // 2):
-            files.append(sf.SoundFile(f'{local_filename}-{i}.flac'))
-
-        def read_chunk(
-            infile: sf.SoundFile,
-            outfiles: Iterable[sf.SoundFile],
-            size: int
-        ):
-            data = np.ndarray((size, infile.channels), 'float64')
-            maxlength = 0
-            for i, file in enumerate(outfiles):
-                fileread = file.read(size)
-                maxlength = max(maxlength, len(fileread))
-                data[:len(fileread), 2*i:2*(i+1)] = fileread
-            return data[:maxlength]
-
-        data = 'a'
-        chunk_size = 8192
-        print('Copying audio data...')
-        while len(data):
-            data = read_chunk(songfile, files, chunk_size)
-            songfile.write(data)
-            songfile.flush()
-
-        # Workaround to a problem where the file dies while
-        # looping because it loses some data when seeking
-        if songfile.frames - loop_end < 2048:
-            print('Padding file at the end...')
-            for file in files:
-                file.seek(loop_start)
-            songfile.write(read_chunk(songfile, files, 2048))
-            songfile.flush()
-
-        songfile.close()
-
-        for i in range(songfile.channels // 2):
-            os.remove(f'{local_filename}-{i}.brstm')
-            os.remove(f'{local_filename}-{i}.flac')
-
-        print('Metadata...')
-
-        tags = mutagen.File(dirname + songinfo.file)
-        tags['title'] = [songinfo.title]
-        tags['loopstart'] = [str(loop_start)]
-        tags['looplength'] = [str(loop_end - loop_start)]
-        def default_padding(info):
-            return info.get_default_padding()
-        tags.save(padding=default_padding)
-
-        songs.append({
-            "version": 2,
-            "name": songinfo.name,
-            "filename": songinfo.file,
-            "variants": variant_map,
-            "layers": layer_map
-        })
-    
-    if len(songs) == 1:
-        return songs[0]
+        return [create_part(local_filename, info)]
     else:
-        return songs
+        return [create_part(local_filename, songinfo) for songinfo in info]
+
+
+def create_part(
+    local_filename: Filename,
+    songinfo: SongInfo
+) -> Mapping:
+    metadata = get_file_information(songinfo)
+
+    variant_map, layer_map = download_and_convert_brstms(
+        local_filename,
+        songinfo
+    )
+    files = list_track_filenames(local_filename, variant_map, layer_map)
+
+    filename = create_multitrack_file(
+        local_filename,
+        songinfo,
+        metadata,
+        files
+    )
+    add_metadata(metadata, filename)
+
+    return {
+        "version": 2,
+        "name": songinfo.name,
+        "filename": songinfo.file,
+        "variants": variant_map,
+        "layers": layer_map
+    }
+
+
+def get_file_information(songinfo: SongInfo) -> Metadata:
+    infotable = get_brstm_info_table(songinfo.first_url())
+    metadata = get_metadata_from_table(infotable)
+    return songinfo.meta.override(metadata)
+
+
+def get_brstm_info_table(url: str) -> BeautifulSoup:
+    soup = open_page(url)
+
+    brstm_info = soup.find(id="prevsub")
+    info = brstm_info.find(id="prevleft")
+    info = info.find_all("td")
+    return info
+
+
+def open_page(url) -> BeautifulSoup:
+    page = requests.get(url)
+    soup = BeautifulSoup(page.content, "html.parser")
+    return soup
+
+
+def get_metadata_from_table(table: BeautifulSoup) -> Metadata:
+    prevloc = locale.getlocale(locale.LC_NUMERIC)
+    locale.setlocale(locale.LC_NUMERIC, 'en_US.UTF-8')
+    
+    game = table[1].text.strip()
+    title = table[3].text.strip()
+    if table[31].text == 'Song Does Not Loop':
+        loop_start = loop_end = None
+    else:
+        loop_start = locale.atoi(table[33].text)
+        loop_end = locale.atoi(table[35].text)
+    samplerate = int(table[37].text)
+
+    locale.setlocale(locale.LC_NUMERIC, prevloc)
+    return Metadata(
+        title=title,
+        game=game,
+        loop_start=loop_start,
+        loop_end=loop_end,
+        samplerate=samplerate
+    )
+
+
+def download_and_convert_brstms(
+    file_basename: Filename,
+    songinfo: SongInfo
+) -> tuple[Mapping, ...]:
+    print('Downloading BRSTM files...')
+
+    variants = download_tracks(file_basename, songinfo.variants)
+    layers = download_tracks(file_basename, songinfo.layers, len(variants))
+
+    return variants, layers
+
+
+def download_tracks(
+    file_basename: Filename,
+    tracklist: Sequence[SongVariantURL],
+    start: int = 0
+) -> Mapping[str, int]:
+    track_map = {}
+    for i, track in enumerate(tracklist, start):
+        soup = open_page(track.url)
+        download_brstm(soup, file_basename)
+        convert_brstm(file_basename, i)
+        track_map[track.name] = i
+    return track_map
+
+
+def download_brstm(soup: BeautifulSoup, filename: Filename) -> None:
+    soup = soup.find(id="brstmdl")
+    soup = soup.find_all("a")[0]
+    brstm_link = "https://web.archive.org/" + soup.attrs["href"]
+    print("Downloading file: " + brstm_link)
+    with requests.get(brstm_link, stream=True) as request:
+        request.raise_for_status()
+
+        with open(f'{filename}.brstm', "wb") as file:
+            for chunk in request.iter_content(chunk_size=8192):
+                file.write(chunk)
+
+
+def convert_brstm(filename: Filename, number: int) -> Filename:
+    infile = f'{filename}.brstm'
+    outfile = f'{filename}-{number}.flac'
+    ffmpeg.input(infile).output(outfile).run(overwrite_output=True)
+    os.remove(infile)
+    return outfile
+
+
+def list_track_filenames(
+    file_basename: Filename,
+    *tracklists: Mapping[str, int]
+) -> Sequence[sf.SoundFile]:
+    tracklists = map(Mapping.values, tracklists)
+    tracklist = itertools.chain.from_iterable(tracklists)
+    return [sf.SoundFile(f'{file_basename}-{n}.flac') for n in tracklist]
+
+
+def create_multitrack_file(
+    local_filename: Filename,
+    songinfo: SongInfo,
+    metadata: Metadata,
+    files: Iterable[sf.SoundFile]
+) -> Filename:
+    songfile = create_sound_file(local_filename, songinfo, metadata.samplerate)
+    merge_sound_files(files, songfile)
+    lengthen_file_if_needed(metadata, files, songfile)
+    for file in files:
+        file.close()
+        os.remove(file.name)
+    songfile.close()
+    
+    return songfile.name
+
+
+def create_sound_file(
+    local_filename: Filename,
+    songinfo: SongInfo,
+    samplerate: int
+) -> sf.SoundFile:
+    directory = os.path.dirname(local_filename)
+    if directory:
+        directory += '/'
+
+    return sf.SoundFile(
+        directory + songinfo.file,
+        mode='w',
+        samplerate=samplerate,
+        channels=(len(songinfo.variants) + len(songinfo.layers)) * 2,
+        format='OGG'
+    )
+
+
+def merge_sound_files(
+    separate_files: Iterable[sf.SoundFile],
+    single_file: sf.SoundFile
+) -> None:
+    datasize = 1
+    chunk_size = 8192
+    print('Copying audio data...')
+    while datasize:
+        datasize = copy_chunk(single_file, separate_files, chunk_size)
+
+
+def lengthen_file_if_needed(
+    metadata: Metadata,
+    files: Iterable[sf.SoundFile],
+    songfile: sf.SoundFile
+) -> None:
+    # Workaround to a problem where the file dies while
+    # looping because it loses some data when seeking
+    if songfile.frames - metadata.loop_end < 2048:
+        print('Padding file at the end...')
+        for file in files:
+            file.seek(metadata.loop_start)
+        copy_chunk(songfile, files, 2048)
+
+
+def copy_chunk(
+    output_file: sf.SoundFile,
+    input_files: Iterable[sf.SoundFile],
+    size: int
+) -> None:
+    data = read_chunk(output_file, input_files, size)
+    output_file.write(data)
+    output_file.flush()
+    return len(data)
+
+
+def read_chunk(
+    output_file: sf.SoundFile,
+    input_files: Iterable[sf.SoundFile],
+    size: int
+) -> np.ndarray:
+    data = np.ndarray((size, output_file.channels), 'float64')
+    maxlength = 0
+    for i, file in enumerate(input_files):
+        fileread = file.read(size)
+        maxlength = max(maxlength, len(fileread))
+        data[:len(fileread), 2*i:2*(i+1)] = fileread
+    return data[:maxlength]
+
+
+def add_metadata(metadata: Metadata, filename: Filename) -> None:
+    print('Metadata...')
+
+    tags = mutagen.File(filename)
+    tags['title'] = [metadata.title]
+    if isinstance(metadata.game, str):
+        tags['game'] = [metadata.game]
+    elif metadata.game is not None:
+        tags['game'] = metadata.game
+    tags['loopstart'] = [str(metadata.loop_start)]
+    tags['looplength'] = [str(metadata.loop_end - metadata.loop_start)]
+
+    def default_padding(info):
+        return info.get_default_padding()
+    tags.save(padding=default_padding)
 
 
 def main():
@@ -182,7 +307,9 @@ def main():
     if len(sys.argv) < 3:
         print(
             "Rips a WAV file from a BRSTM from the archive of SmashCustomMusic.",
-            f"Usage: {sys.argv[0]} <filename to use, no extension or spaces> [-variant name, no spaces] <link to page> [-<variant name> <link to another page>]... --layers ...",
+            f"Usage: {sys.argv[0]} <filename to use, no extension or spaces>",
+            "[-variant name, no spaces] <link to page> [-<variant name>",
+            "<link to another page>]... --layers ...",
             end="\n"
         )
         return
@@ -214,7 +341,7 @@ def main():
     except StopIteration:
         pass
 
-    file = get_brstms(local_filename, SongInfo("", variants, layers))
+    file = create_song_parts(local_filename, SongInfo("", variants, layers))
     file["name"] = input(
         "Enter VGM title (leave blank to use file name): ") or os.path.basename(local_filename)
     json.dump(
