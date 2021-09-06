@@ -58,7 +58,7 @@ class LoopGUI:
         def toggle_pause():
             la.paused = not la.paused
             self.pause_text.set(('Pause', 'Play')[la.paused])
-        tk.Button(
+        ttk.Button(
             volume_panel,
             textvariable=self.pause_text,
             command=toggle_pause
@@ -116,7 +116,7 @@ class LoopGUI:
         ttk.Button(file_pane, text="Pick file",
                    command=select_file).grid(row=0, column=0)
 
-        ttk.Entry(file_pane,
+        tk.Entry(file_pane,
                   textvariable=self.input_filename).grid(row=0, column=1, sticky="EW")
 
         ttk.Button(file_pane, text="Load",
@@ -413,8 +413,8 @@ def create_window(master, title):
 
 
 def create_field(master, label, variable, row):
-    ttk.Label(master, text=label).grid(row=row, column=0)
-    entry = ttk.Entry(master, textvariable=variable)
+    tk.Label(master, text=label).grid(row=row, column=0)
+    entry = tk.Entry(master, textvariable=variable)
     entry.grid(row=row, column=1, sticky='EW')
     return entry
 
@@ -430,21 +430,20 @@ class EditableListEntry:
         self.grid_field_buttons()
         
     def add_field_entry(self, row, var):
-        entry = ttk.Entry(self.frame, textvariable=var)
+        entry = tk.Entry(self.frame, textvariable=var)
         entry.grid(row=row, columnspan=2, sticky='EW')
     
     def create_field_buttons(self):
         self.add_button = ttk.Button(
             self.frame,
             text='+',
-            command=lambda: self.add_field
+            command=self.add_field
         )
         self.remove_button = ttk.Button(
             self.frame,
             text='-',
-            command=lambda: self.remove_field
+            command=self.remove_field
         )
-        disable_for_size(self.remove_button, self.sequence, 0)
     
     def grid_field_buttons(self):
         self.add_button.grid(row=len(self.sequence), column=0)
@@ -453,8 +452,8 @@ class EditableListEntry:
         
     def add_field(self):
         var = tk.StringVar(self.frame)
+        self.add_field_entry(len(self.sequence), var)
         self.sequence.append(var)
-        self.add_field_entry(len(self.sequence) - 1, var)
         self.grid_field_buttons()
     
     def remove_field(self):
@@ -466,7 +465,7 @@ class EditableListEntry:
 
 
 def create_multi_field(master, label, sequence, row):
-    ttk.Label(master, text=label).grid(row=row, column=0, sticky='N')
+    tk.Label(master, text=label).grid(row=row, column=0, sticky='N')
     EditableListEntry(master, sequence
         ).frame.grid(row=row, column=1, sticky='NSEW')
 
