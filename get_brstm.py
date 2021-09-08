@@ -55,9 +55,22 @@ def create_song(
     json_file: Filename,
     info: Union[SongInfo, Iterable[SongInfo]]
 ) -> None:
+    create_directory_for_file(json_file)
     parts = create_song_parts(os.path.splitext(json_file)[0], info)
     parts = parts[0] if len(parts) == 1 else parts
     json.dump(parts, open(json_file, "w"))
+
+
+def create_directory_for_file(file: Filename) -> None:
+    try:
+        os.mkdir(os.path.dirname(file))
+    except FileExistsError:
+        pass
+    except FileNotFoundError as e:
+        raise ValueError(
+            'Cannot automatically create more than one directory:\n'
+                + e.filename
+        ) from e
 
 
 def create_song_parts(
