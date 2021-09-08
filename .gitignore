@@ -6,7 +6,7 @@ oggs/**
 .vscode/**
 **/.DS_Store
 *.pyc
+setup*.py
 
 # Old versions that will be removed from the original computer soon
 loop.py
-loop_gui_old.py

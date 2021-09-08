@@ -206,7 +206,7 @@ class LoopGUI:
         variants = list(song.variants())
 
         def select_variant():
-            song.set_variant(variants[selected_variant.get()], 5.0)
+            song.set_variant(variants[selected_variant.get()])
         radiobuttons = [ttk.Radiobutton(
                             self.variant_pane,
                             variable=selected_variant,
