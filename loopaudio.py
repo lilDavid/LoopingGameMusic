@@ -27,17 +27,27 @@ class TrackData:
     volume: float
 
 
-def bitwise_iter(num: int):
+def bitwise_iter(num: int, pad=False):
     """Return an iterator that yields bits from num in the order of least to
-    most significant."""
+    most significant.
+    
+    If pad is false, this iterator will stop once num's bits are exhausted. If
+    pad is true, then it will continue to yield zeros afterward."""
     while num > 0:
         yield num & 1
         num >>= 1
+    while pad:
+        yield 0
 
 
 class SoundLoop:
 
-    def __init__(self, audio_data: tuple, loopstart: int = 0, loopend: int = None):
+    def __init__(
+        self,
+        audio_data: tuple,
+        loopstart: int = 0,
+        loopend: int = None
+    ):
         self.loop = LoopData(loopstart, loopend)
         if None in self.loop:
             self.loop = None
@@ -59,11 +69,13 @@ class SoundLoopPlayback:
         if status:
             print(status)
         chunksize = min(len(self.sound.data) - self.current_frame, frames)
-        outdata[:chunksize] = self.sound.data[self.current_frame:self.current_frame + chunksize]
+        outdata[:chunksize] = self.sound.data[
+            self.current_frame:self.current_frame + chunksize]
         if chunksize < frames:
             if self.sound.loop:
                 self.current_frame = self.sound.loop.start + frames - chunksize
-                outdata[chunksize:] = self.sound.data[self.sound.loop.start:self.current_frame]
+                outdata[chunksize:] = self.sound.data[
+                    self.sound.loop.start:self.current_frame]
             else:
                 outdata[chunksize:] = 0
                 raise sd.CallbackStop()
@@ -342,7 +354,7 @@ class SongLoop(ABC):
         self.add_layers(layers)
 
     def set_layers_from_bits(self, layers: int):
-        for layer, bit in zip(self._layers, bitwise_iter(layers)):
+        for layer, bit in zip(self._layers, bitwise_iter(layers, pad=True)):
             self.set_layer(layer, bit)
 
     def play(self,
@@ -397,7 +409,11 @@ class SongLoop(ABC):
         finish = Event()
         Thread(
             daemon=True,
-            target=lambda: self.play(start=start, callback=callback, finish_event=finish)
+            target=lambda: self.play(
+                start=start,
+                callback=callback,
+                finish_event=finish
+            )
         ).start()
         return finish
 
@@ -525,8 +541,14 @@ class MultiFileLoop(SongLoop):
     def __init__(self,
                  tags: SongTags,
                  name: str,
-                 variants: Union[Sequence[sf.SoundFile], Mapping[Any, sf.SoundFile]],
-                 layers: Union[Sequence[sf.SoundFile], Mapping[Any, sf.SoundFile], None] = None,
+                 variants: (
+                    Union[Sequence[sf.SoundFile],
+                    Mapping[Any, sf.SoundFile]]
+                 ),
+                 layers: (
+                    Union[Sequence[sf.SoundFile],
+                    Mapping[Any, sf.SoundFile], None]
+                 ) = None,
                  loopstart: int = 0,
                  loopend: int = 0,
                  blocksize: int = 2048,
@@ -567,7 +589,8 @@ class MultiFileLoop(SongLoop):
             self._position = file.value.seek(frames)
     
     def _mix_data(self, data):
-        return np.clip(sum(d * t.volume for d, t in zip(data, self._tracks)), -1.0, 1.0)
+        return np.clip(
+            sum(d * t.volume for d, t in zip(data, self._tracks)), -1.0, 1.0)
     
     def _concatenate(self, alpha, bravo):
         return [np.concatenate((a, b)) for a, b in zip(alpha, bravo)]
@@ -624,8 +647,26 @@ def get_song_part(buffersize, blocksize, path: PurePath, partjson: Mapping):
     part_name = partjson.get('name', 'Play')
 
     return [
-        lambda: get_classic_loop(buffersize, blocksize, path, partjson, song_tags, loopstart, loopend, part_name),
-        lambda: get_multitrack_loop(buffersize, blocksize, partjson, file, song_tags, loopstart, loopend, part_name)
+        lambda: get_classic_loop(
+            buffersize,
+            blocksize,
+            path,
+            partjson,
+            song_tags,
+            loopstart,
+            loopend,
+            part_name
+        ),
+        lambda: get_multitrack_loop(
+            buffersize,
+            blocksize,
+            partjson,
+            file,
+            song_tags,
+            loopstart,
+            loopend,
+            part_name
+        )
     ][partjson.get('version', 1) - 1]()
 
 
@@ -636,7 +677,8 @@ def get_main_filename(path: PurePath, partjson: Mapping):
         varname = partjson['variants'][0]
         if varname:
             varname = f'-{varname}'
-        file = f'{path.parent / path.stem}{varname}.{partjson.get("filetype", "wav")}'
+        file = (f'{path.parent / path.stem}{varname}.'
+            + partjson.get("filetype", "wav"))
     return file
 
 
