@@ -12,7 +12,9 @@ A music player that can play video game music that loops continuously. Also supp
 - `beautifulsoup4`
 
 ## Using
-The file to use as the main module is loop_gui.py. From there you can access both the player and the Smash Custom Music import feature. You *can* also run get_brstm.py, but currently the entry point for that file is broken and will be fixed at a later date.
+Navigate to the top level directory, then:
+- To simply play a song: `python`/`python3 -m loopaudio path/to/file/or/json`
+- For the GUI: `python`/`python3 -m loopaudio.gui`
 
 ### Player
 When you open the player, your first step is the 'File' pane. You can open any compatible file after selecting it or entering its location relative to the current working directory (the folder opened when pressing the 'Pick file' button). Compatible files include probably most audio file types (OGG is the only type I've tested) or a JSON file describing the relationship between several files—more on that later.
