@@ -7,7 +7,7 @@ from tkinter import ttk
 from typing import Sequence, Sized, Tuple
 
 import loopaudio as la
-from get_brstm import Metadata, SongInfo, SongVariantURL, create_song
+from loopaudio.convert import Metadata, SongInfo, SongVariantURL, create_song
 
 
 class UpdaterProgressBar():
@@ -34,65 +34,11 @@ class LoopGUI:
         self.master = master
         master.title("VGM Looper")
 
-        # Input file and play controls
-        self._build_input_panel(master, 0)
-
-        # Now playing
-        play_panel = tk.LabelFrame(master, text="Now playing")
-
-        self.now_playing = tk.StringVar(value="")
-        tk.Label(play_panel, textvariable=self.now_playing).grid(row=0, sticky="EW")
-        self.song_progress = tk.IntVar()
-        self.progress_bar = ttk.Progressbar(play_panel, mode="determinate")
-        self.progress_bar.grid(row=1, sticky="EW")
-
-        play_panel.columnconfigure(0, weight=1)
-        play_panel.grid(row=1, columnspan=2, sticky="EW")
-
-        self._build_variants_layers(master, 2)
-
-        # Volume
-        volume_panel = tk.Frame(master)
-        
-        self.pause_text = tk.StringVar(value='Pause')
-        def toggle_pause():
-            la.paused = not la.paused
-            self.pause_text.set(('Pause', 'Play')[la.paused])
-        ttk.Button(
-            volume_panel,
-            textvariable=self.pause_text,
-            command=toggle_pause
-        ).grid(row=0, column=0)
-
-        volpercent = tk.StringVar()
-        def set_volume(vol):
-            vol = float(vol)
-            la.volume = vol
-            volpercent.set(f'Volume: {vol:3.0%}')
-        set_volume(la.volume)
-        
-        tk.Label(
-            volume_panel,
-            textvariable=volpercent
-        ).grid(row=0, column=1, sticky='E')
-
-        ttk.Scale(
-            volume_panel,
-            from_=0,
-            to=1.0,
-            value=1.0,
-            orient='horizontal',
-            command=set_volume
-        ).grid(row=0, column=2, sticky='EW')
-        volume_panel.columnconfigure(2, weight=1)
-        volume_panel.grid(row=5, columnspan=2, sticky='EW')
-
-        # BRSTM downloader
-        def open_importer():
-            new_window = tk.Toplevel(self.master)
-            SCMImportGUI(new_window)
-        ttk.Button(master, text="Import files from SmashCustomMusic archive...",
-                   command=open_importer).grid(row=6, columnspan=2, sticky="SE")
+        self.create_input_panel(master, 0)
+        self.create_now_playing_panel(master, 1)
+        self.create_variant_layer_panel(master, 2)
+        self.create_volume_panel(master, 3)
+        self.create_import_button(master, 4)
 
         master.rowconfigure(2, weight=1)
         master.columnconfigure(0, weight=1, uniform='a')
@@ -100,11 +46,32 @@ class LoopGUI:
 
         master.configure(padx=8, pady=5)
 
-    def _build_input_panel(self, master, row):
+    def create_input_panel(self, master, row):
         file_pane = tk.LabelFrame(master, text="File")
 
-        self.input_filename = tk.StringVar(file_pane)
+        self.create_file_input(file_pane)
+        self.create_part_list(file_pane)
 
+        file_pane.columnconfigure(1, weight=1)
+        file_pane.grid(row=row, columnspan=2, sticky="NEW")
+
+    def create_file_input(self, master):
+        self.input_filename = tk.StringVar(master)
+
+        self.create_file_input_button(master, 0)
+
+        tk.Entry(
+            master,
+            textvariable=self.input_filename
+        ).grid(row=0, column=1, sticky="EW")
+
+        ttk.Button(
+            master,
+            text="Load",
+            command=self.load
+        ).grid(row=0, column=2)
+
+    def create_file_input_button(self, master, column):
         def select_file():
             self.input_filename.set(
                 tkinter.filedialog.askopenfilename(
@@ -113,141 +80,268 @@ class LoopGUI:
                     filetypes=[("JSON files", "json")]
                 )
             )
-        ttk.Button(file_pane, text="Pick file",
-                   command=select_file).grid(row=0, column=0)
+        
+        ttk.Button(
+            master,
+            text="Pick file",
+            command=select_file
+        ).grid(row=0, column=column)
 
-        tk.Entry(file_pane,
-                  textvariable=self.input_filename).grid(row=0, column=1, sticky="EW")
-
-        ttk.Button(file_pane, text="Load",
-                   command=self.load).grid(row=0, column=2)
-
-        # List of parts
-        canvas = tk.Canvas(file_pane, height=0, bd=0, highlightthickness=0, relief="ridge")
-        scrollbar = ttk.Scrollbar(file_pane, orient="horizontal", command=canvas.xview)
-        canvas.configure(xscrollcommand=scrollbar.set, yscrollcommand=scrollbar.set)
-        canvas.bind("<Configure>", lambda _: canvas.configure(
-            scrollregion=canvas.bbox('all')))
+    def create_part_list(self, master):
+        canvas = tk.Canvas(
+            master,
+            height=0,
+            bd=0,
+            highlightthickness=0,
+            relief="ridge"
+        )
+        scrollbar = ttk.Scrollbar(
+            master,
+            orient="horizontal",
+            command=canvas.xview
+        )
+        canvas.configure(
+            xscrollcommand=scrollbar.set,
+            yscrollcommand=scrollbar.set
+        )
+        canvas.bind(
+            "<Configure>",
+            lambda _: canvas.configure(scrollregion=canvas.bbox('all'))
+        )
         canvas.grid(row=1, columnspan=3, sticky="EW")
         scrollbar.grid(row=2, columnspan=3, sticky="EW")
 
-        self.song_panel = tk.Frame(canvas)
-        canvas.create_window((0, 0), window=self.song_panel, anchor='nw')
+        self.song_part_panel = tk.Frame(canvas)
+        canvas.create_window((0, 0), window=self.song_part_panel, anchor='nw')
 
-        file_pane.columnconfigure(1, weight=1)
-        file_pane.grid(row=row, columnspan=2, sticky="NEW")
+    def create_variant_layer_panel(self, master, row):
+        self.variant_pane = self.create_track_panel(master, 'Variants', row, 0)
+        self.layer_pane = self.create_track_panel(master, 'Layers', row, 1)
 
-    def _build_variants_layers(self, master, row):
-        # Variants
-        self.variant_pane = tk.LabelFrame(master, text="Variants")
-        self.variant_pane.grid(row=row, column=0, sticky="NESW")
+    def create_track_panel(self, master, label, row, column):
+        frame = tk.LabelFrame(master, text=label)
+        frame.grid(row=row, column=column, sticky="NESW")
+        return frame
 
-        # Layers
-        self.layer_pane = tk.LabelFrame(master, text="Layers")
-        self.layer_pane.grid(row=row, column=1, sticky="NESW")
+    def create_now_playing_panel(self, master, row):
+        now_playing_frame = tk.LabelFrame(master, text="Now playing")
+
+        self.create_now_playing_label(now_playing_frame)
+        self.create_song_progress_bar(now_playing_frame)
+
+        now_playing_frame.columnconfigure(0, weight=1)
+        now_playing_frame.grid(row=row, columnspan=2, sticky="EW")
+
+    def create_now_playing_label(self, master):
+        self.now_playing = tk.StringVar(value="")
+        tk.Label(
+            master,
+            textvariable=self.now_playing
+        ).grid(row=0, sticky="EW")
+
+    def create_song_progress_bar(self, master):
+        self.song_progress = tk.IntVar()
+        self.progress_bar = ttk.Progressbar(
+            master,
+            mode="determinate"
+        )
+        self.progress_bar.grid(row=1, sticky="EW")
+
+    def create_volume_panel(self, master, row):
+        volume_panel = tk.Frame(master)
+
+        self.create_pause_button(volume_panel)
+        self.create_volume_bar(volume_panel)
+
+        volume_panel.columnconfigure(2, weight=1)
+        volume_panel.grid(row=row, columnspan=2, sticky='EW')
+
+    def create_pause_button(self, master):
+        self.pause_text = tk.StringVar(value='Pause')
+
+        def toggle_pause():
+            la.paused = not la.paused
+            self.pause_text.set(('Pause', 'Play')[la.paused])
+        
+        ttk.Button(
+            master,
+            textvariable=self.pause_text,
+            command=toggle_pause
+        ).grid(row=0, column=0)
+
+    def create_volume_bar(self, master):
+        volpercent = tk.StringVar()
+
+        def set_volume(vol):
+            vol = float(vol)
+            la.volume = vol
+            volpercent.set(f'Volume: {vol:3.0%}')
+        
+        set_volume(la.volume)
+
+        tk.Label(
+            master,
+            textvariable=volpercent
+        ).grid(row=0, column=1, sticky='E')
+
+        ttk.Scale(
+            master,
+            from_=0,
+            to=1.0,
+            value=1.0,
+            orient='horizontal',
+            command=set_volume
+        ).grid(row=0, column=2, sticky='EW')
+
+    def create_import_button(self, master, row):
+        def open_importer():
+            SCMImportGUI(create_window(master))
+        ttk.Button(
+            master,
+            text="Import files from SmashCustomMusic archive...",
+            command=open_importer
+        ).grid(row=row, columnspan=2, sticky="SE")
 
     def load(self):
         input_file = self.input_filename.get()
-
-        def play_song(song: la.SongLoop):
-            return lambda: self.play_loop(song)
-        
-        # Rebuild song panel
-
-        for widget in self.song_panel.winfo_children():
-            widget.destroy()
-
-        self.songs = []
         try:
             loops = la.open_loops(input_file)
         except Exception as exc:
             dialog_and_print_error(exc, 'Could not load song')
             loops = []
-        for num, song in enumerate(loops, start=1):
-            song_record = {
-                "name": song.name,
-                "button": ttk.Button(
-                    master=self.song_panel,
-                    text=(song.name
-                        or ('Play' if len(loops) == 1
-                        else f'Part {num}')),
-                    command=play_song(song)
-                )
-            }
-            self.songs.append(song_record)
-            song_record["button"].pack(side=tk.LEFT)
-            self.song_panel.pack()
 
+        self.populate_song_part_panel(loops)
+
+    def populate_song_part_panel(self, partlist):
+        self.clear_widget(self.song_part_panel)
+        self.create_song_part_buttons(self.song_part_panel, partlist)
+        self.create_stop_button(self.song_part_panel)
+
+    def clear_widget(self, widget):
+        for w in widget.winfo_children():
+            w.destroy()
+
+    def create_song_part_buttons(self, master, partlist):
+        for num, song in enumerate(partlist, start=1):
+            self.song_part_record(partlist, num, song)
+        master.pack()
+
+    def song_part_record(self, partlist, num, song):
+        button = ttk.Button(
+            master=self.song_part_panel,
+            text=(
+                song.name
+                or ('Play' if len(partlist) == 1 else f'Part {num}')
+            ),
+            command=lambda: self.play_loop(song)
+        )
+        button.pack(side=tk.LEFT)
+        return {
+            "name": song.name,
+            "button": button
+        }
+
+    def create_stop_button(self, master):
         self.stop_button = ttk.Button(
-            self.song_panel, text="Stop", command=self.stop_loop)
+            master,
+            text="Stop",
+            command=self.stop_loop
+        )
         self.stop_button.state(["disabled"])
         self.stop_button.pack(side=tk.LEFT)
 
-    def play_loop(self, song: la.SongLoop):
-        # Stop song and change parts
+    def stop_loop(self):
         la.paused = False
         self.pause_text.set('Pause')
+        self.stop_button.state(["disabled"])
+        self.now_playing.set("")
+        self.song.stop()
+        self.progress_bar["value"] = 0
+        self.clear_widget(self.variant_pane)
+        self.clear_widget(self.layer_pane)
+
+    def play_loop(self, song: la.SongLoop):
         try:
-            self.song.stop()
+            self.stop_loop()
         except AttributeError:
             pass
         finally:
-            self.song = song
-            pb = UpdaterProgressBar(song, self.progress_bar)
-            pb.start()
-            song.play_async(callback=pb.update)
+            self.set_active_song(song)
+        self.populate_variant_panel(song)
+        self.populate_layer_panel(song)
+        self.reset_song_variants_and_layers(song)
+        self.update_now_playing(song)
+
+    def set_active_song(self, song):
+        self.song = song
+        pb = UpdaterProgressBar(song, self.progress_bar)
+        pb.start()
+        song.play_async(callback=pb.update)
         self.stop_button.state(["!disabled"])
 
-        # Rebuild variant and layer panels
+    def populate_variant_panel(self, song):
+        self.clear_widget(self.variant_pane)
+        self.create_variant_radio_buttons(song)
 
-        for widget in self.variant_pane.winfo_children():
-            widget.destroy()
+    def create_variant_radio_buttons(self, song):
         selected_variant = tk.IntVar(master=self.variant_pane, value=0)
         variants = list(song.variants())
 
         def select_variant():
-            song.set_variant(variants[selected_variant.get()], 5.0)
-        radiobuttons = [ttk.Radiobutton(
-                            self.variant_pane,
-                            variable=selected_variant,
-                            text=var, value=pos,
-                            command=select_variant)
-                        for pos, var in enumerate(variants)]
-        for button in radiobuttons:
-            button.pack(anchor=tk.W)
+            song.set_variant(variants[selected_variant.get()])
+        
+        radiobuttons = [
+            self.variant_radio_button(
+                selected_variant,
+                var,
+                pos,
+                select_variant
+            )
+            for pos, var in enumerate(variants)
+        ]
         if radiobuttons[0]["text"] == "":
             radiobuttons[0]["text"] = "<default>"
         selected_variant.set(0)
 
-        for widget in self.layer_pane.winfo_children():
-            widget.destroy()
+    def variant_radio_button(self, variable, label, value, select_function):
+        btn = ttk.Radiobutton(
+            self.variant_pane,
+            variable=variable,
+            text=label,
+            value=value,
+            command=select_function
+        )
+        btn.pack(anchor=tk.W)
+        return btn
+
+    def populate_layer_panel(self, song):
+        self.clear_widget(self.layer_pane)
 
         def layer_set_function(layer, variable):
             return lambda: song.set_layer(layer, variable.get())
 
         for lay in song.layers():
-            var = tk.IntVar()
-            check = ttk.Checkbutton(
-                self.layer_pane, variable=var, text=lay, command=layer_set_function(lay, var))
-            var.set(0)
-            check.pack(anchor=tk.W)
-        
-        # Reset variants/layers for next part
+            self.layer_check_button(layer_set_function, lay)
+
+    def layer_check_button(self, layer_set_function, lay):
+        var = tk.IntVar()
+        check = ttk.Checkbutton(
+            self.layer_pane,
+            variable=var,
+            text=lay,
+            command=layer_set_function(lay, var)
+        )
+        check.pack(anchor=tk.W)
+        var.set(0)
+        return check
+
+    def reset_song_variants_and_layers(self, song):
         if song.variants():
             song.set_variant(next(iter(song.variants())))
-        song.set_layers(0)
-
+        song.set_layers_from_bits(0)
+    
+    def update_now_playing(self, song):
         self.now_playing.set('\n'.join(song.tags.to_str_list()))
-
-    def stop_loop(self):
-        self.song.stop()
-        self.stop_button.state(["disabled"])
-        self.now_playing.set("")
-        self.progress_bar["value"] = 0
-        for widget in self.variant_pane.winfo_children():
-            widget.destroy()
-        for widget in self.layer_pane.winfo_children():
-            widget.destroy()
 
 
 def dialog_and_print_error(exception, message='An error occurred'):
@@ -409,9 +503,10 @@ class SongPartMetadata:
         )
 
 
-def create_window(master, title):
+def create_window(master, title = None):
     window = tk.Toplevel(master)
-    window.title(title)
+    if title is not None:
+        window.title(title)
     return window
 
 
