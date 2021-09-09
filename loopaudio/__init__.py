@@ -12,6 +12,7 @@ import numpy as np
 import sounddevice as sd
 import soundfile as sf
 
+
 volume: float = 1.0
 paused: bool = False
 
@@ -759,22 +760,3 @@ def get_multitrack_loop(
         blocksize,
         buffersize
     )
-
-
-def main():
-    try:
-        try:
-            import sys
-            file = sys.argv[1]
-        except IndexError:
-            file = 'examples/dolphin_shoals_n.ogg'
-        song = open_loops(file)[0]
-        if not song.variants():
-            song.set_layers_from_bits(1)
-        song.play()
-    except KeyboardInterrupt:
-        return
-
-
-if __name__ == '__main__':
-    main()

@@ -7,7 +7,7 @@ from tkinter import ttk
 from typing import Sequence, Sized, Tuple
 
 import loopaudio as la
-from get_brstm import Metadata, SongInfo, SongVariantURL, create_song
+from loopaudio.convert import Metadata, SongInfo, SongVariantURL, create_song
 
 
 class UpdaterProgressBar():
