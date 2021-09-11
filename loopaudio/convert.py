@@ -186,14 +186,14 @@ def download_brstm(soup: BeautifulSoup, path: PurePath) -> None:
     with requests.get(brstm_link, stream=True) as request:
         request.raise_for_status()
 
-        with open(f'{path.parent / path.stem}.brstm', "wb") as file:
+        with open(path.with_suffix('.brstm'), "wb") as file:
             for chunk in request.iter_content(chunk_size=8192):
                 file.write(chunk)
 
 
 def convert_brstm(path: Path, number: int) -> PurePath:
-    inpath = path.parent / f'{path.stem}.brstm'
-    outpath = path.parent / f'{path.stem}-{number}.flac'
+    inpath = path.with_stem('.brstm')
+    outpath = path.with_name(f'{path.stem}-{number}.flac')
     ffmpeg.input(str(inpath)).output(str(outpath)).run(overwrite_output=True)
     inpath.unlink()
     return outpath
@@ -205,7 +205,7 @@ def list_track_filenames(
 ) -> Sequence[sf.SoundFile]:
     tracklists = map(Mapping.values, tracklists)
     tracklist = itertools.chain.from_iterable(tracklists)
-    return [sf.SoundFile(file_path.parent / f'{file_path.stem}-{n}.flac') for n in tracklist]
+    return [sf.SoundFile(file_path.with_name(f'{file_path.stem}-{n}.flac')) for n in tracklist]
 
 
 def create_multitrack_file(
