@@ -299,16 +299,21 @@ def add_metadata(metadata: Metadata, file_path: PurePath) -> None:
 
     tags = mutagen.File(file_path)
     tags['title'] = [metadata.title]
-    if isinstance(metadata.game, str):
-        tags['game'] = [metadata.game]
-    elif metadata.game is not None:
-        tags['game'] = metadata.game
+    set_potential_multiple_tag(tags, 'artist', metadata.artist)
+    set_potential_multiple_tag(tags, 'game', metadata.game)
     tags['loopstart'] = [str(metadata.loop_start)]
     tags['looplength'] = [str(metadata.loop_end - metadata.loop_start)]
 
     def default_padding(info):
         return info.get_default_padding()
     tags.save(padding=default_padding)
+
+
+def set_potential_multiple_tag(tags, tag_name: str, tag_value: Sequence):
+    if isinstance(tag_value, str):
+        tags[tag_name] = [tag_value]
+    elif tag_value is not None:
+        tags[tag_name] = tag_value
 
 
 def main():
