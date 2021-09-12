@@ -10,7 +10,7 @@ import loopaudio as la
 from get_brstm import Metadata, SongInfo, SongVariantURL, create_song
 
 
-class UpdaterProgressBar():
+class SongProgressUpdater:
 
     def __init__(self, song: la.SongLoop, progressbar: ttk.Progressbar):
         self.song = song
@@ -21,8 +21,7 @@ class UpdaterProgressBar():
         self.bar["value"] = 0
 
     def update(self):
-        progress = int(self.song.position / len(self.song)
-                       * self.bar["maximum"])
+        progress = int(self.song.position / len(self.song) * self.bar["maximum"])
         if progress != self.val:
             self.bar["value"] = progress
             self.val = progress
@@ -30,8 +29,11 @@ class UpdaterProgressBar():
 
 class LoopGUI:
 
-    def __init__(self, master: tk.Tk):
-        self.master = master
+    def __init__(self, master: tk.Tk, preloaded_song: str = None):
+        self.configure_master(master)
+        self.preload_file(preloaded_song)
+
+    def configure_master(self, master: tk.Tk):
         master.title("VGM Looper")
 
         self.create_input_panel(master, 0)
@@ -45,6 +47,11 @@ class LoopGUI:
         master.columnconfigure(1, weight=1, uniform='a')
 
         master.configure(padx=8, pady=5)
+
+    def preload_file(self, preloaded_song: str):
+        if preloaded_song is not None:
+            self.input_filename.set(preloaded_song)
+            self.load()
 
     def create_input_panel(self, master, row):
         file_pane = tk.LabelFrame(master, text="File")
@@ -140,7 +147,6 @@ class LoopGUI:
         ).grid(row=0, sticky="EW")
 
     def create_song_progress_bar(self, master):
-        self.song_progress = tk.IntVar()
         self.progress_bar = ttk.Progressbar(
             master,
             mode="determinate"
@@ -274,7 +280,7 @@ class LoopGUI:
 
     def set_active_song(self, song):
         self.song = song
-        pb = UpdaterProgressBar(song, self.progress_bar)
+        pb = SongProgressUpdater(song, self.progress_bar)
         pb.start()
         song.play_async(callback=pb.update)
         self.stop_button.state(["!disabled"])
@@ -438,12 +444,16 @@ class SCMImportGUI:
         tk.Label(file_field, text="File name").grid(row=0, column=0)
         tk.Entry(file_field, textvariable=self.file_name).grid(
             row=0, column=1, sticky="EW")
-        ttk.Button(file_field, text="Select", command=lambda: self.file_name.set(
-            tkinter.filedialog.asksaveasfilename(
-                initialdir=sys.path[0],
-                confirmoverwrite=True,
-                filetypes=[("JSON file", "json")]
-            ))
+        ttk.Button(
+            file_field,
+            text="Select",
+            command=lambda: self.file_name.set(
+                tkinter.filedialog.asksaveasfilename(
+                    initialdir=sys.path[0],
+                    confirmoverwrite=True,
+                    filetypes=[("JSON file", "json")]
+                )
+            )
         ).grid(row=0, column=2)
         file_field.columnconfigure(1, weight=1)
         file_field.grid(row=0, sticky="EW")
@@ -481,10 +491,8 @@ def disable_for_size(button: ttk.Button, collection: Sized, minsize: int):
     button.state([f'{state}disabled'])
 
 
-class SongPartMetadata:
+class TkVarMetadata:
     def __init__(self, master):
-        self.master = master
-
         self.title = tk.StringVar(master)
         self.artists = []
         self.album = tk.StringVar(master)
@@ -564,8 +572,7 @@ class EditableListEntry:
 
 def create_multi_field(master, label, sequence, row):
     tk.Label(master, text=label).grid(row=row, column=0, sticky='N')
-    EditableListEntry(master, sequence
-        ).frame.grid(row=row, column=1, sticky='NSEW')
+    EditableListEntry(master, sequence).frame.grid(row=row, column=1, sticky='NSEW')
 
 
 class SongPartUI:
@@ -596,7 +603,7 @@ class SongPartUI:
 
     def create_description_panel(self, nb, index):
         name_panel = tk.LabelFrame(self.panel, text="Information")
-        self.metadata = SongPartMetadata(name_panel)
+        self.metadata = TkVarMetadata(name_panel)
         create_field(name_panel, 'Title:', self.metadata.title, 0)
         self.create_part_name_entry(nb, index, name_panel)
         self.create_filename_field(name_panel)
@@ -744,11 +751,16 @@ class SongPartUI:
         )
 
 
-def main():
+def main(*args):
     window = tk.Tk()
-    LoopGUI(window)
+    try:
+        song = args[0]
+    except IndexError:
+        song = None
+    LoopGUI(window, song)
     window.mainloop()
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    main(*sys.argv[1:])
