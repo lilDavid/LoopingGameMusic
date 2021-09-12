@@ -7,7 +7,7 @@ from tkinter import ttk
 from typing import Sequence, Sized, Tuple
 
 import loopaudio as la
-from loopaudio.convert import Metadata, SongInfo, SongVariantURL, create_song
+from loopaudio.convert import Metadata, SongPart, SongTrackURL, create_song
 
 
 class UpdaterProgressBar():
@@ -734,13 +734,13 @@ class SongPartUI:
     def get_layers(self) -> Sequence[Tuple]:
         return [(lay[0].get(), lay[1].get()) for lay in self.layers]
     
-    def create_song_info(self) -> SongInfo:
-        return SongInfo(
+    def create_song_info(self) -> SongPart:
+        return SongPart(
             self.part_name.get(),
             self.filename.get(),
             self.metadata.to_get_brstm_meta(),
-            [SongVariantURL(var[0], var[1]) for var in self.get_variants()],
-            [SongVariantURL(lay[0], lay[1]) for lay in self.get_layers()]
+            [SongTrackURL(var[0], var[1]) for var in self.get_variants()],
+            [SongTrackURL(lay[0], lay[1]) for lay in self.get_layers()]
         )
 
 
