@@ -2,15 +2,6 @@
 
 A music player that can play video game music that loops continuously. Also supports songs with multiple parts as well as variable mixing.
 
-## Dependencies
-- `SoundFile`
-- `requests`
-- `mutagen`
-- `ffmpeg-python`
-- `numpy`
-- `sounddevice`
-- `beautifulsoup4`
-
 ## Using
 Navigate to the top level directory, then:
 - To simply play a song: `python`/`python3 -m loopaudio path/to/file/or/json`

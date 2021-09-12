@@ -1,0 +1,11 @@
+SoundFile==0.10.3.post1
+PyAudio==0.2.11
+numpy==1.21.0
+ffmpeg_python==0.2.0
+mutagen==1.45.1
+sounddevice==0.4.2
+ansi==0.2.0
+requests==2.26.0
+beautifulsoup4==4.10.0
+dataclasses==0.8
+ffmpeg==1.4
