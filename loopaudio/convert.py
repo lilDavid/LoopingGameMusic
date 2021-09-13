@@ -10,10 +10,12 @@ import numpy as np
 import requests
 import soundfile as sf
 from bs4 import BeautifulSoup
-from babel.numbers import parse_number
+from babel.numbers import parse_number as parse_int
 
 
 class SongTrackURL(NamedTuple):
+    """Information about a track needed to import it from Smash Custom Music"""
+
     name: str
     url: str
 
@@ -180,8 +182,8 @@ def get_metadata_from_table(table: BeautifulSoup) -> Metadata:
     if table[31].text == 'Song Does Not Loop':
         loop_start = loop_end = None
     else:
-        loop_start = parse_number(table[33].text, locale='en_US')
-        loop_end = parse_number(table[35].text, locale='en_US')
+        loop_start = parse_int(table[33].text, locale='en_US')
+        loop_end = parse_int(table[35].text, locale='en_US')
     samplerate = int(table[37].text)
 
     return Metadata(
