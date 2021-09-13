@@ -17,13 +17,21 @@ volume: float = 1.0
 paused: bool = False
 
 
-class LoopData(NamedTuple):
+class LoopPoints(NamedTuple):
+    """A song part's loop points. The song will play to *start* samples, then
+    play the section from *start* to *end* samples indefinitely."""
+
     start: int
     end: int
 
 
 @dataclass(init=True, repr=True)
-class TrackData:
+class TrackState:
+    """The enabled/disabled state of a track.
+    
+    The player in the GUI module only uses 0.0 and 1.0 for the volume, however
+    using any other numeric value is possible and will work."""
+
     value: Any
     volume: float
 
@@ -34,6 +42,7 @@ def bitwise_iter(num: int, pad=False):
     
     If pad is false, this iterator will stop once num's bits are exhausted. If
     pad is true, then it will continue to yield zeros afterward."""
+
     while num > 0:
         yield num & 1
         num >>= 1
@@ -42,31 +51,37 @@ def bitwise_iter(num: int, pad=False):
 
 
 class SoundLoop:
+    """A reusable sound loaded into memory all at once."""
 
     def __init__(
         self,
-        audio_data: tuple,
+        audio_data,
+        sample_rate: int,
         loopstart: int = 0,
         loopend: int = None
     ):
-        self.loop = LoopData(loopstart, loopend)
+        self.loop = LoopPoints(loopstart, loopend)
         if None in self.loop:
             self.loop = None
 
-        self.data = audio_data[0]
-        self.sample_rate = audio_data[1]
+        self.data, self.sample_rate = audio_data, sample_rate
 
     def create_playback(self):
+        """Create a playback object for this sound."""
+
         return SoundLoopPlayback(self)
 
 
 class SoundLoopPlayback:
+    """An object used to play a SoundLoop."""
 
     def __init__(self, sound: SoundLoop):
         self.sound = sound
         self.current_frame = 0
 
     def stream_callback(self, outdata, frames, time, status):
+        """Write the data from the original sound into a stream."""
+
         if status:
             print(status)
         chunksize = min(len(self.sound.data) - self.current_frame, frames)
@@ -86,6 +101,11 @@ class SoundLoopPlayback:
 
 @dataclass(repr=True)
 class SongTags:
+    """Tag data for a song, consisting of info used to identify the song and its
+    source, but not necessary for playback.
+    
+    Of these, the title field is the most likely to be filled, but even that
+    isn't strictly necessary."""
 
     title: Any
     artist: Any
@@ -112,17 +132,19 @@ class SongTags:
         self.game = get_tag('game')
     
     def __iter__(self):
-        yield 'title', self.title
-        yield 'artist', self.artist
-        yield 'album', self.album
-        yield 'game', self.game
-        yield 'track number', self.number
-        yield 'year', self.year
+        yield self.title
+        yield self.artist
+        yield self.album
+        yield self.game
+        yield self.number
+        yield self.year
 
     def __bool__(self):
-        return any(val for _, val in self)
+        return any(self)
 
     def to_str_list(self):
+        """Construct a string list describing all tags that are set in this object."""
+
         def is_listable(obj):
             return isinstance(obj, Sequence) and not isinstance(obj, str)
 
@@ -158,9 +180,10 @@ class SongTags:
 
 
 class SongLoop(ABC):
+    """A streamed loop for music files that supports variable mixing."""
 
-    loop: Union[LoopData, None]
-    _tracks: MutableSequence[TrackData]
+    loop: Union[LoopPoints, None]
+    _tracks: MutableSequence[TrackState]
 
     def __init__(self,
                  tags: SongTags,
@@ -181,10 +204,16 @@ class SongLoop(ABC):
         self.stopped = False
         self._position = 0
 
-    def set_loop(self, loopstart, loopend):
-        self.loop = LoopData(loopstart, loopend)
+    def set_loop(self, start, end):
+        """Set the song's loop points. If either point is None, then the song
+        will only play once and not loop."""
+
+        self.loop = LoopPoints(start, end)
         if None in self.loop:
             self.loop = None
+            self.read_data = self._read_data
+        else:
+            self.read_data = self._read_looping_data
 
     def _intialize_tracklist(self, variants, layers):
         self._tracks = []
@@ -209,7 +238,7 @@ class SongLoop(ABC):
         for v in tracklist:
             index = len(self._tracks)
             tracks.append(index)
-            self._tracks.append(TrackData(v, 0.0))
+            self._tracks.append(TrackState(v, 0.0))
         return tracks
 
     def _register_track_map(self, tracklist):
@@ -217,19 +246,25 @@ class SongLoop(ABC):
         for n, v in tracklist.items():
             index = len(self._tracks)
             tracks[n] = index
-            self._tracks.append(TrackData(v, 0.0))
+            self._tracks.append(TrackState(v, 0.0))
         return tracks
 
     @abstractmethod
     def sample_rate(self) -> int:
+        """Get and return the song's sample rate in hertz."""
+
         ...
 
     @property
     def position(self) -> int:
+        """The playhead position in samples."""
+
         return self._position
 
     @abstractmethod
-    def seek(self, frames):
+    def seek(self, frames: int):
+        """Set the position of the playhead."""
+
         ...
 
     @abstractmethod
@@ -237,6 +272,8 @@ class SongLoop(ABC):
         ...
 
     def read_data(self):
+        """Read the next data chunk and advance the playhead accordingly."""
+
         self.read_data = self._read_looping_data if self.loop \
             else self._read_data
         return self.read_data()
@@ -264,36 +301,44 @@ class SongLoop(ABC):
         return data
     
     def variants(self):
+        """Get and return the song's set of variant names or numbers."""
+
         if isinstance(self._variants, Sequence):
             return range(len(self._variants))
         return self._variants.keys()
     
     def layers(self):
+        """Get and return the song's set of layer names or numbers."""
+
         if isinstance(self._layers, Sequence):
             return range(len(self._layers))
         return self._layers.keys()
     
     def get_variant(self):
+        """Get and return the name or number of the currently playing variant."""
+
         return self._active_variant
     
     def _set_track_volume(self, track: int, volume: float):
         self._tracks[track].volume = volume
 
-    def set_variant_volume(self, variant: Union[int, str], volume: float):
+    def _set_variant_volume(self, variant: Union[int, str], volume: float):
         self._set_track_volume(self._variants[variant], volume)
     
-    def set_layer_volume(self, layer: Union[int, str], volume: float):
+    def _set_layer_volume(self, layer: Union[int, str], volume: float):
         self._set_track_volume(self._layers[layer], volume)
 
     def _set_variant(self, variant, volume):
         try:
-            self.set_variant_volume(self._active_variant, 0.0)
+            self._set_variant_volume(self._active_variant, 0.0)
         except AttributeError:
             pass
         self._active_variant = variant
-        self.set_variant_volume(variant, volume)
+        self._set_variant_volume(variant, volume)
 
     def set_variant(self, variant, *, volume: float = 1.0):
+        """Set the currently playing variant."""
+
         if variant is None:
             self._active_variant = None
             return
@@ -305,6 +350,8 @@ class SongLoop(ABC):
             self._set_variant(variant, volume)
 
     def get_active_layers(self):
+        """Get the names of the layers that are currently playing."""
+
         return tuple(self._active_layers)
 
     def _set_layer(self, layer, operation):
@@ -315,22 +362,30 @@ class SongLoop(ABC):
         else:
             operation(layer)
 
-    def add_layer(self, layer):
-        self.set_layer_volume(layer, 1.0)
+    def add_layer(self, layer, volume = 1.0):
+        """Enable a layer."""
+
+        self._set_layer_volume(layer, volume)
         self._set_layer(self, layer, self._active_layers.add)
 
-    def set_layer(self, layer, value):
-        self.set_layer_volume(layer, float(value))
+    def set_layer_volume(self, layer, volume):
+        """Set the volume for a layer."""
+
+        self._set_layer_volume(layer, float(volume))
         self._set_layer(
             layer,
-            self._active_layers.add if value else self._active_layers.discard
+            self._active_layers.add if volume else self._active_layers.discard
         )
 
     def remove_layer(self, layer):
-        self.set_layer_volume(layer, 0.0)
+        """Disable a layer."""
+
+        self._set_layer_volume(layer, 0.0)
         self._set_layer(self, layer, self._active_layers.discard)
 
     def add_layers(self, layers: Iterable):
+        """Enable layers from the iterable."""
+
         for layer in layers:
             try:
                 self.add_layer(layer)
@@ -338,6 +393,8 @@ class SongLoop(ABC):
                 pass
 
     def remove_layers(self, layers: Iterable):
+        """Disable layers from the iterable."""
+
         for layer in layers:
             try:
                 self.remove_layer(layer)
@@ -345,18 +402,30 @@ class SongLoop(ABC):
                 pass
     
     def set_layers(self, layers: Union[Iterable, int]):
+        """Set the song's layers based on the provided object, either based on
+        the names, or the set bits if it's an integer."""
+
         if isinstance(layers, Iterable):
             self.set_layers_from_names(layers)
         else:
             self.set_layers_from_bits(layers)
 
     def set_layers_from_names(self, layers: Iterable):
+        """Enable and disable the song's layers based on the names or numbers 
+        present in the iterable."""
+
         self.remove_layers(self.layers())
         self.add_layers(layers)
 
     def set_layers_from_bits(self, layers: int):
+        """Enable and disable the song's layers based on the set bits in the
+        integer.
+        
+        The integer is read from least to most significant bit, so the first
+        variant will be set based on the last bit, and so on."""
+
         for layer, bit in zip(self._layers, bitwise_iter(layers, pad=True)):
-            self.set_layer(layer, bit)
+            self.set_layer_volume(layer, bit)
 
     def play(self,
              start=0,
@@ -364,6 +433,8 @@ class SongLoop(ABC):
              callback: Callable = None,
              finish_event: Event = None
             ):
+        """Play the song, either to a new stream or to the provided one."""
+
         if callback is None:
             def callback():
                 pass
@@ -389,6 +460,8 @@ class SongLoop(ABC):
         self.prefill_queue()
 
     def prefill_queue(self):
+        """Preload the song's data."""
+
         for _ in range(self.buffer_size):
             data = self.read_data()
             if not len(data):
@@ -407,6 +480,9 @@ class SongLoop(ABC):
         self._dataqueue.put(self._get_frames(0))
 
     def play_async(self, start=0, callback = None) -> Event:
+        """Play the song in a stream in a new thread and return the event that
+        will be set if and when it finishes."""
+
         finish = Event()
         Thread(
             daemon=True,
@@ -419,9 +495,13 @@ class SongLoop(ABC):
         return finish
 
     def stop(self):
+        """Stop the song's playback."""
+
         self.stopped = True
 
     def stream_callback(self, outdata, frames, time, status):
+        """Write the song's data into the stream into which it's playing."""
+
         self._raise_for_stream_status(frames, status)
         data = self._get_stream_data()
         self._copy_data_into_stream(outdata, data)
@@ -460,6 +540,8 @@ class SongLoop(ABC):
     
     @abstractmethod
     def file_length(self):
+        """Get and return the length of the file in samples."""
+
         ...
     
     @abstractmethod
@@ -468,6 +550,8 @@ class SongLoop(ABC):
     
     @abstractmethod
     def channels(self):
+        """Get and return the number of channels per track."""
+
         ...
 
 
@@ -602,6 +686,9 @@ def open_loop(
     buffersize: int = 20,
     blocksize: int = 2048
 ) -> Union[None, SongLoop, Sequence[SongLoop]]:
+    """Open a song and return it as a single SongLoop object, a sequence of
+    them, or None depending on the number of parts the song has."""
+
     loops = open_loops(filename, buffersize, blocksize)
     if len(loops) == 0:
         return None
@@ -615,40 +702,34 @@ def open_loops(
     buffersize: int = 20,
     blocksize: int = 2048
 ) -> Sequence[SongLoop]:
+    """Open a song and return it as a sequence of SongLoop objects."""
+
     path = PurePath(filename)
-    part_list = create_part_list(path)
+    part_list = _create_part_list(path)
+    return [_get_song_part(buffersize, blocksize, path, partinfo) for partinfo in part_list]
 
 
-    return [get_song_part(buffersize, blocksize, path, partinfo)
-        for partinfo in part_list]
-
-
-def create_part_list(path: PurePath):
+def _create_part_list(path: PurePath):
     if path.suffix == '.json':
         file_list = json.load(open(path, 'r'))
         if not isinstance(file_list, Sequence):
             file_list = [file_list]
     else:
-        file_list = [
-            {
-                'filename': path.name,
-                'version': 2,
-                'layers': ...}
-        ]
+        file_list = [{'filename': path.name,'version': 2,'layers': ...}]
 
     return file_list
 
 
-def get_song_part(buffersize, blocksize, path: PurePath, partjson: Mapping):
-    file = get_main_filename(path, partjson)
+def _get_song_part(buffersize, blocksize, path: PurePath, partjson: Mapping):
+    file = _get_main_filename(path, partjson)
     tags = mutagen.File(file)
     song_tags = SongTags(tags)
 
-    loopstart, loopend = get_loop_data(partjson, tags)
+    loopstart, loopend = _get_loop_data(partjson, tags)
     part_name = partjson.get('name', 'Play')
 
     return [
-        lambda: get_classic_loop(
+        lambda: _get_classic_loop(
             buffersize,
             blocksize,
             path,
@@ -658,7 +739,7 @@ def get_song_part(buffersize, blocksize, path: PurePath, partjson: Mapping):
             loopend,
             part_name
         ),
-        lambda: get_multitrack_loop(
+        lambda: _get_multitrack_loop(
             buffersize,
             blocksize,
             partjson,
@@ -671,7 +752,7 @@ def get_song_part(buffersize, blocksize, path: PurePath, partjson: Mapping):
     ][partjson.get('version', 1) - 1]()
 
 
-def get_main_filename(path: PurePath, partjson: Mapping):
+def _get_main_filename(path: PurePath, partjson: Mapping):
     try:
         file = str(path.parent / partjson['filename'])
     except KeyError:
@@ -683,7 +764,7 @@ def get_main_filename(path: PurePath, partjson: Mapping):
     return file
 
 
-def get_loop_data(partjson, tags):
+def _get_loop_data(partjson, tags):
     try:
         loopstart = int(tags['loopstart'][0])
         loopend = loopstart + int(tags['looplength'][0])
@@ -699,7 +780,7 @@ def get_loop_data(partjson, tags):
     return loopstart, loopend
 
 
-def get_classic_loop(
+def _get_classic_loop(
     buffersize,
     blocksize,
     path: PurePath,
@@ -712,15 +793,15 @@ def get_classic_loop(
     return MultiFileLoop(
         song_tags,
         part_name,
-        get_classic_tracks(path, partjson, 'variants'),
-        get_classic_tracks(path, partjson, 'layers'),
+        _get_classic_tracks(path, partjson, 'variants'),
+        _get_classic_tracks(path, partjson, 'layers'),
         loopstart,
         loopend,
         blocksize,
         buffersize
     )
 
-def get_classic_tracks(path: PurePath, partjson: Mapping, key):
+def _get_classic_tracks(path: PurePath, partjson: Mapping, key):
     tracks = {}
     for variant in partjson.get(key, ()):
         var_name = '-' + variant if variant else ''
@@ -731,7 +812,7 @@ def get_classic_tracks(path: PurePath, partjson: Mapping, key):
     return tracks
 
 
-def get_multitrack_loop(
+def _get_multitrack_loop(
     buffersize,
     blocksize,
     partjson: Mapping,
