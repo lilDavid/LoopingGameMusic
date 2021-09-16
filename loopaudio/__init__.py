@@ -366,7 +366,7 @@ class SongLoop(ABC):
         """Enable a layer."""
 
         self._set_layer_volume(layer, volume)
-        self._set_layer(self, layer, self._active_layers.add)
+        self._set_layer(layer, self._active_layers.add)
 
     def set_layer_volume(self, layer, volume):
         """Set the volume for a layer."""
@@ -381,7 +381,7 @@ class SongLoop(ABC):
         """Disable a layer."""
 
         self._set_layer_volume(layer, 0.0)
-        self._set_layer(self, layer, self._active_layers.discard)
+        self._set_layer(layer, self._active_layers.discard)
 
     def add_layers(self, layers: Iterable):
         """Enable layers from the iterable."""
