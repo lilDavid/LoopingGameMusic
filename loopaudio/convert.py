@@ -252,7 +252,7 @@ def convert_brstm(path: Path, number: int) -> PurePath:
     """Convert a BRSTM file to a numbered FLAC file, and return the path to that
     file."""
 
-    inpath = path.with_stem('.brstm')
+    inpath = path.with_suffix('.brstm')
     outpath = path.with_name(f'{path.stem}-{number}.flac')
     ffmpeg.input(str(inpath)).output(str(outpath)).run(overwrite_output=True)
     inpath.unlink()
@@ -392,8 +392,8 @@ def add_metadata(metadata: Metadata, file_path: PurePath) -> None:
 
     tags = mutagen.File(file_path)
     tags['title'] = [metadata.title]
-    tags['artist'] = potential_single_string_to_list(metadata.artist)
-    tags['game'] = potential_single_string_to_list(metadata.game)
+    tags['artist'] = wrap_string(metadata.artist)
+    tags['game'] = wrap_string(metadata.game)
     tags['loopstart'] = [str(metadata.loop_start)]
     tags['looplength'] = [str(metadata.loop_end - metadata.loop_start)]
 
@@ -402,13 +402,15 @@ def add_metadata(metadata: Metadata, file_path: PurePath) -> None:
     tags.save(padding=default_padding)
 
 
-def potential_single_string_to_list(
+def wrap_string(
     value: Union[str, Sequence[str], None]
 ) -> Optional[Sequence[str]]:
-    """If the value is a string, wrap it in a list and return it. Otherwise, 
-    return the value."""
+    """Wrap the value in a list. None becomes an empty list, a string is
+    wrapped a list, and any other sequence is returned as it was passed."""
 
-    if isinstance(value, str):
+    if value is None:
+        return []
+    elif isinstance(value, str):
         return [value]
     else:
         return value
