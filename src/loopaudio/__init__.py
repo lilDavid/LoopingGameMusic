@@ -28,7 +28,7 @@ class LoopPoints(NamedTuple):
 @dataclass(init=True, repr=True)
 class TrackState:
     """The enabled/disabled state of a track.
-    
+
     The player in the GUI module only uses 0.0 and 1.0 for the volume, however
     using any other numeric value is possible and will work."""
 
@@ -39,7 +39,7 @@ class TrackState:
 def bitwise_iter(num: int, pad=False):
     """Return an iterator that yields bits from num in the order of least to
     most significant.
-    
+
     If pad is false, this iterator will stop once num's bits are exhausted. If
     pad is true, then it will continue to yield zeros afterward."""
 
@@ -103,7 +103,7 @@ class SoundLoopPlayback:
 class SongTags:
     """Tag data for a song, consisting of info used to identify the song and its
     source, but not necessary for playback.
-    
+
     Of these, the title field is the most likely to be filled, but even that
     isn't strictly necessary."""
 
@@ -116,6 +116,7 @@ class SongTags:
 
     def __init__(self, tags: Mapping = None, **kwargs):
         tags = {} if tags is None else tags
+
         def get_tag(tag: str):
             tag = tags.get(tag, kwargs.get(tag, None))
             if not tag:
@@ -130,7 +131,7 @@ class SongTags:
         self.number = None
         self.year = get_tag('date')
         self.game = get_tag('game')
-    
+
     def __iter__(self):
         yield self.title
         yield self.artist
@@ -185,16 +186,17 @@ class SongLoop(ABC):
     loop: Union[LoopPoints, None]
     _tracks: MutableSequence[TrackState]
 
-    def __init__(self,
-                 tags: SongTags,
-                 name: str,
-                 variants: Union[Sequence, Mapping],
-                 layers: Union[Sequence, Mapping, None] = None,
-                 loopstart: int = 0,
-                 loopend: int = None,
-                 blocksize: int = 2048,
-                 buffersize: int = 20
-                ):
+    def __init__(
+        self,
+        tags: SongTags,
+        name: str,
+        variants: Union[Sequence, Mapping],
+        layers: Union[Sequence, Mapping, None] = None,
+        loopstart: int = 0,
+        loopend: int = None,
+        blocksize: int = 2048,
+        buffersize: int = 20
+    ):
         self.tags, self.name, self.block_size, self.buffer_size = (
             tags, name, blocksize, buffersize)
         self.set_loop(loopstart, loopend)
@@ -299,32 +301,32 @@ class SongLoop(ABC):
     def _read_data(self):
         data = self._get_frames(self.block_size)
         return data
-    
+
     def variants(self):
         """Get and return the song's set of variant names or numbers."""
 
         if isinstance(self._variants, Sequence):
             return range(len(self._variants))
         return self._variants.keys()
-    
+
     def layers(self):
         """Get and return the song's set of layer names or numbers."""
 
         if isinstance(self._layers, Sequence):
             return range(len(self._layers))
         return self._layers.keys()
-    
+
     def get_variant(self):
         """Get and return the name or number of the currently playing variant."""
 
         return self._active_variant
-    
+
     def _set_track_volume(self, track: int, volume: float):
         self._tracks[track].volume = volume
 
     def _set_variant_volume(self, variant: Union[int, str], volume: float):
         self._set_track_volume(self._variants[variant], volume)
-    
+
     def _set_layer_volume(self, layer: Union[int, str], volume: float):
         self._set_track_volume(self._layers[layer], volume)
 
@@ -362,7 +364,7 @@ class SongLoop(ABC):
         else:
             operation(layer)
 
-    def add_layer(self, layer, volume = 1.0):
+    def add_layer(self, layer, volume=1.0):
         """Enable a layer."""
 
         self._set_layer_volume(layer, volume)
@@ -400,7 +402,7 @@ class SongLoop(ABC):
                 self.remove_layer(layer)
             except ValueError:
                 pass
-    
+
     def set_layers(self, layers: Union[Iterable, int]):
         """Set the song's layers based on the provided object, either based on
         the names, or the set bits if it's an integer."""
@@ -420,7 +422,7 @@ class SongLoop(ABC):
     def set_layers_from_bits(self, layers: int):
         """Enable and disable the song's layers based on the set bits in the
         integer.
-        
+
         The integer is read from least to most significant bit, so the first
         variant will be set based on the last bit, and so on."""
 
@@ -432,7 +434,7 @@ class SongLoop(ABC):
              stream: sd.OutputStream = None,
              callback: Callable = None,
              finish_event: Event = None
-            ):
+             ):
         """Play the song, either to a new stream or to the provided one."""
 
         if callback is None:
@@ -467,7 +469,7 @@ class SongLoop(ABC):
             if not len(data):
                 break
             self._dataqueue.put_nowait(data)
-    
+
     def _enqueue_data_until_stopped(self, callback):
         data = [0]
         while len(data) and not self.stopped:
@@ -479,7 +481,7 @@ class SongLoop(ABC):
                 self._dataqueue.queue.clear()
         self._dataqueue.put(self._get_frames(0))
 
-    def play_async(self, start=0, callback = None) -> Event:
+    def play_async(self, start=0, callback=None) -> Event:
         """Play the song in a stream in a new thread and return the event that
         will be set if and when it finishes."""
 
@@ -523,7 +525,7 @@ class SongLoop(ABC):
             raise sd.CallbackAbort(
                 'Buffer is empty: increase buffersize?') from e
         return data
-    
+
     def _copy_data_into_stream(self, outdata, indata):
         if len(indata) < len(outdata):
             outdata[:len(indata)] = indata
@@ -531,23 +533,23 @@ class SongLoop(ABC):
             raise sd.CallbackStop
         else:
             outdata[:] = indata
-    
+
     def __len__(self):
         if self.loop:
             return self.loop.end
         else:
             return self.file_length()
-    
+
     @abstractmethod
     def file_length(self):
         """Get and return the length of the file in samples."""
 
         ...
-    
+
     @abstractmethod
     def _mix_data(self, data) -> np.ndarray:
         ...
-    
+
     @abstractmethod
     def channels(self):
         """Get and return the number of channels per track."""
@@ -568,7 +570,7 @@ class MultiTrackLoop(SongLoop):
                  channels: int = 2,
                  blocksize: int = 2048,
                  buffersize: int = 20
-                ):
+                 ):
         super().__init__(
             tags,
             name,
@@ -579,14 +581,14 @@ class MultiTrackLoop(SongLoop):
             blocksize,
             buffersize
         )
-        
+
         if not soundfile.seekable():
             self.loop = None
-        
+
         self.sound_file = soundfile
         channels = channels or soundfile.channels
         self.channels = lambda: channels
-    
+
     def channels(self):
         ...
 
@@ -603,7 +605,7 @@ class MultiTrackLoop(SongLoop):
             self._position = self.sound_file.seek(frames, whence=sf.SEEK_END)
         else:
             self._position = self.sound_file.seek(frames)
-    
+
     def file_length(self):
         return self.sound_file.frames
 
@@ -616,7 +618,7 @@ class MultiTrackLoop(SongLoop):
             trange = get_range(track.value)
             parts.append(data[:, trange[0]:trange[1]] * track.volume)
         return np.clip(sum(parts), -1.0, 1.0)
-    
+
     def _concatenate(self, alpha, bravo):
         return np.concatenate((alpha, bravo))
 
@@ -626,19 +628,13 @@ class MultiFileLoop(SongLoop):
     def __init__(self,
                  tags: SongTags,
                  name: str,
-                 variants: (
-                    Union[Sequence[sf.SoundFile],
-                    Mapping[Any, sf.SoundFile]]
-                 ),
-                 layers: (
-                    Union[Sequence[sf.SoundFile],
-                    Mapping[Any, sf.SoundFile], None]
-                 ) = None,
+                 variants: Union[Sequence[sf.SoundFile], Mapping[Any, sf.SoundFile]],
+                 layers: Union[Sequence[sf.SoundFile], Mapping[Any, sf.SoundFile], None] = None,
                  loopstart: int = 0,
                  loopend: int = 0,
                  blocksize: int = 2048,
                  buffersize: int = 20
-                ):
+                 ):
         super().__init__(
             tags,
             name,
@@ -656,13 +652,13 @@ class MultiFileLoop(SongLoop):
         self.sample_rate = lambda: first.samplerate
         self.file_length = lambda: first.frames
         self.channels = lambda: first.channels
-    
+
     def sample_rate(self):
         ...
-    
+
     def file_length(self):
         ...
-    
+
     def channels(self):
         ...
 
@@ -672,11 +668,11 @@ class MultiFileLoop(SongLoop):
     def seek(self, frames: int):
         for file in self._tracks:
             self._position = file.value.seek(frames)
-    
+
     def _mix_data(self, data):
         return np.clip(
             sum(d * t.volume for d, t in zip(data, self._tracks)), -1.0, 1.0)
-    
+
     def _concatenate(self, alpha, bravo):
         return [np.concatenate((a, b)) for a, b in zip(alpha, bravo)]
 
@@ -715,7 +711,7 @@ def _create_part_list(path: PurePath):
         if not isinstance(file_list, Sequence):
             file_list = [file_list]
     else:
-        file_list = [{'filename': path.name,'version': 2,'layers': ...}]
+        file_list = [{'filename': path.name, 'version': 2, 'layers': ...}]
 
     return file_list
 
@@ -760,7 +756,7 @@ def _get_main_filename(path: PurePath, partjson: Mapping):
         if varname:
             varname = f'-{varname}'
         file = (f'{path.parent / path.stem}{varname}.'
-            + partjson.get("filetype", "wav"))
+                + partjson.get("filetype", "wav"))
     return file
 
 
@@ -801,13 +797,14 @@ def _get_classic_loop(
         buffersize
     )
 
+
 def _get_classic_tracks(path: PurePath, partjson: Mapping, key):
     tracks = {}
     for variant in partjson.get(key, ()):
         var_name = '-' + variant if variant else ''
         tracks[variant] = sf.SoundFile(
             f'{path.parent / path.stem}{var_name}.'
-                + partjson.get("filetype", "wav")
+            + partjson.get("filetype", "wav")
         )
     return tracks
 
