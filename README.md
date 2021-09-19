@@ -3,7 +3,8 @@
 A music player that can play video game music that loops continuously. Also supports songs with multiple parts as well as variable mixing.
 
 ## Using
-Navigate to the top level directory, then:
+Navigate to the top level directory, then `pip`/`pip3`/`python -m pip install .`
+With the module installed:
 - To simply play a song: `python`/`python3 -m loopaudio path/to/file/or/json`
 - For the GUI: `python`/`python3 -m loopaudio.gui`
 
