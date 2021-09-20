@@ -6,4 +6,4 @@ oggs/**
 .vscode/**
 **/.DS_Store
 *.pyc
-setup*.py
+*_venv

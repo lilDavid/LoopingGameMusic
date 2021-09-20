@@ -12,7 +12,7 @@ from loopaudio.convert import Metadata, SongPart, SongTrackURL, create_song
 
 class SongProgressUpdater:
 
-    def __init__(self, song: la.SongLoop, progressbar: ttk.Progressbar):
+    def __init__(self, song: la.SongPart, progressbar: ttk.Progressbar):
         self.song = song
         self.bar = progressbar
 
@@ -166,8 +166,9 @@ class LoopGUI:
         self.pause_text = tk.StringVar(value='Pause')
 
         def toggle_pause():
-            la.paused = not la.paused
-            self.pause_text.set(('Pause', 'Play')[la.paused])
+            pause = not self.loaded_song.playback_state.paused
+            self.loaded_song.playback_state.paused = pause
+            self.pause_text.set(('Pause', 'Play')[pause])
         
         ttk.Button(
             master,
@@ -175,19 +176,21 @@ class LoopGUI:
             command=toggle_pause
         ).grid(row=0, column=0)
 
-    def create_volume_bar(self, master):
-        volpercent = tk.StringVar()
+    def set_volume(self, vol):
+        vol = float(vol)
+        try:
+            self.loaded_song.playback_state.volume = vol
+        except AttributeError:
+            pass
+        self.volume.set(f'Volume: {vol:3.0%}')
 
-        def set_volume(vol):
-            vol = float(vol)
-            la.volume = vol
-            volpercent.set(f'Volume: {vol:3.0%}')
-        
-        set_volume(la.volume)
+    def create_volume_bar(self, master):
+        self.volume = tk.StringVar()
+        self.set_volume(1.0)
 
         tk.Label(
             master,
-            textvariable=volpercent
+            textvariable=self.volume
         ).grid(row=0, column=1, sticky='E')
 
         ttk.Scale(
@@ -196,7 +199,7 @@ class LoopGUI:
             to=1.0,
             value=1.0,
             orient='horizontal',
-            command=set_volume
+            command=self.set_volume
         ).grid(row=0, column=2, sticky='EW')
 
     def create_import_button(self, master, row):
@@ -211,12 +214,14 @@ class LoopGUI:
     def load(self):
         input_file = self.input_filename.get()
         try:
-            loops = la.open_loops(input_file)
+            self.loaded_song = la.open_song(input_file)
+            parts = self.loaded_song.parts
         except Exception as exc:
             dialog_and_print_error(exc, 'Could not load song')
-            loops = []
+            self.loaded_song = None
+            parts = ()
 
-        self.populate_song_part_panel(loops)
+        self.populate_song_part_panel(parts)
 
     def populate_song_part_panel(self, partlist):
         self.clear_widget(self.song_part_panel)
@@ -228,22 +233,19 @@ class LoopGUI:
             w.destroy()
 
     def create_song_part_buttons(self, master, partlist):
-        for num, song in enumerate(partlist, start=1):
-            self.song_part_record(partlist, num, song)
+        for num, part in enumerate(partlist):
+            self.song_part_record(partlist, num, part)
         master.pack()
 
-    def song_part_record(self, partlist, num, song):
+    def song_part_record(self, partlist, num: int, part: la.SongPart):
         button = ttk.Button(
             master=self.song_part_panel,
-            text=(
-                song.name
-                or ('Play' if len(partlist) == 1 else f'Part {num}')
-            ),
-            command=lambda: self.play_loop(song)
+            text=part.name or ('Play' if len(partlist) == 1 else f'Part {num + 1}'),
+            command=lambda: self.play_song_part(num)
         )
         button.pack(side=tk.LEFT)
         return {
-            "name": song.name,
+            "name": part.name,
             "button": button
         }
 
@@ -251,38 +253,38 @@ class LoopGUI:
         self.stop_button = ttk.Button(
             master,
             text="Stop",
-            command=self.stop_loop
+            command=self.stop_playback
         )
         self.stop_button.state(["disabled"])
         self.stop_button.pack(side=tk.LEFT)
 
-    def stop_loop(self):
-        la.paused = False
+    def stop_playback(self):
+        self.loaded_song.playback_state.paused = False
         self.pause_text.set('Pause')
         self.stop_button.state(["disabled"])
         self.now_playing.set("")
-        self.song.stop()
+        self.loaded_song.stop()
         self.progress_bar["value"] = 0
         self.clear_widget(self.variant_pane)
         self.clear_widget(self.layer_pane)
 
-    def play_loop(self, song: la.SongLoop):
+    def play_song_part(self, partind):
         try:
-            self.stop_loop()
+            self.stop_playback()
         except AttributeError:
             pass
         finally:
-            self.set_active_song(song)
-        self.populate_variant_panel(song)
-        self.populate_layer_panel(song)
-        self.reset_song_variants_and_layers(song)
-        self.update_now_playing(song)
+            self.set_active_song(partind)
+        part = self.loaded_song.get_song(partind)
+        self.populate_variant_panel(part)
+        self.populate_layer_panel(part)
+        self.reset_song_variants_and_layers(part)
+        self.update_now_playing(part)
 
     def set_active_song(self, song):
-        self.song = song
         pb = SongProgressUpdater(song, self.progress_bar)
         pb.start()
-        song.play_async(callback=pb.update)
+        self.loaded_song.play_async(song)
         self.stop_button.state(["!disabled"])
 
     def populate_variant_panel(self, song):
@@ -305,9 +307,10 @@ class LoopGUI:
             )
             for pos, var in enumerate(variants)
         ]
-        if radiobuttons[0]["text"] == "":
-            radiobuttons[0]["text"] = "<default>"
-        selected_variant.set(0)
+        if radiobuttons:
+            if radiobuttons[0]["text"] == "":
+                radiobuttons[0]["text"] = "<default>"
+            selected_variant.set(0)
 
     def variant_radio_button(self, variable, label, value, select_function):
         btn = ttk.Radiobutton(
@@ -324,7 +327,7 @@ class LoopGUI:
         self.clear_widget(self.layer_pane)
 
         def layer_set_function(layer, variable):
-            return lambda: song.set_layer(layer, variable.get())
+            return lambda: song.set_layer_volume(layer, variable.get())
 
         for lay in song.layers():
             self.layer_check_button(layer_set_function, lay)
@@ -344,7 +347,9 @@ class LoopGUI:
     def reset_song_variants_and_layers(self, song):
         if song.variants():
             song.set_variant(next(iter(song.variants())))
-        song.set_layers_from_bits(0)
+            song.set_layers_from_bits(0)
+        else:
+            song.set_layers_from_bits(1)
     
     def update_now_playing(self, song):
         self.now_playing.set('\n'.join(song.tags.to_str_list()))
