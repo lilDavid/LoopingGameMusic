@@ -214,12 +214,19 @@ class LoopGUI:
     def load(self):
         input_file = self.input_filename.get()
         try:
-            self.loaded_song = la.open_song(input_file)
-            parts = self.loaded_song.parts
+            loaded_song = la.open_song(input_file)
+            parts = loaded_song.parts
         except Exception as exc:
             dialog_and_print_error(exc, 'Could not load song')
-            self.loaded_song = None
+            loaded_song = None
             parts = ()
+        else:
+            try:
+                self.stop_playback()
+            except AttributeError:
+                pass
+        finally:
+            self.loaded_song = loaded_song
 
         self.populate_song_part_panel(parts)
 
@@ -259,11 +266,11 @@ class LoopGUI:
         self.stop_button.pack(side=tk.LEFT)
 
     def stop_playback(self):
-        self.loaded_song.playback_state.paused = False
         self.pause_text.set('Pause')
         self.stop_button.state(["disabled"])
         self.now_playing.set("")
         self.loaded_song.stop()
+        self.loaded_song.playback_state.paused = False
         self.progress_bar["value"] = 0
         self.clear_widget(self.variant_pane)
         self.clear_widget(self.layer_pane)
@@ -274,17 +281,17 @@ class LoopGUI:
         except AttributeError:
             pass
         finally:
-            self.set_active_song(partind)
-        part = self.loaded_song.get_song(partind)
+            part = self.loaded_song.get_song(partind)
+            self.set_active_song(partind, part)
         self.populate_variant_panel(part)
         self.populate_layer_panel(part)
         self.reset_song_variants_and_layers(part)
         self.update_now_playing(part)
 
-    def set_active_song(self, song):
-        pb = SongProgressUpdater(song, self.progress_bar)
+    def set_active_song(self, part, loop):
+        pb = SongProgressUpdater(loop, self.progress_bar)
         pb.start()
-        self.loaded_song.play_async(song)
+        self.loaded_song.play_async(part, callback=pb.update)
         self.stop_button.state(["!disabled"])
 
     def populate_variant_panel(self, song):

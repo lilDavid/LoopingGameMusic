@@ -591,8 +591,11 @@ class StreamPlayback:
         self._finish_event = finish_event or Event()
         self.owner = owner
         self.song = song
+        self.stopped = False
 
         def stream_callback(outdata, frames, time, status):
+            if self.stopped:
+                raise sd.CallbackStop
             self._raise_for_stream_status(status)
             if owner.playback_state.paused:
                 data = np.zeros((frames, 2))
@@ -614,6 +617,9 @@ class StreamPlayback:
     def await_finish(self):
         self._finish_event.wait()
     
+    def stop(self):
+        self.stopped = True
+    
     def _raise_for_stream_status(self, status):
         if status.output_underflow:
             raise sd.CallbackAbort('Output underflow: increase blocksize?')
@@ -632,7 +638,6 @@ class GameMusic:
 
     @dataclass
     class PlaybackState:
-        stopped: bool = True
         paused: bool = False
         volume: float = 1.0
 
@@ -671,14 +676,16 @@ class GameMusic:
 
         song = self.get_song(song_index)
         song.seek(start)
+        self._dataqueue = q.Queue(self._dataqueue.maxsize)
         song.prefill(self._dataqueue, blocksize=2048)
 
+        self.stop()
         self.now_playing = StreamPlayback(self, 2048, song, finish_event)
         
         with self.now_playing.stream:
-            self.playback_state.stopped = False
-            song.enqueue_data_until_stopped(self._dataqueue, 2048, self.playback_state, callback)
-            self.now_playing.await_finish()
+            play = self.now_playing
+            song.enqueue_data_until_stopped(self._dataqueue, 2048, self.now_playing, callback)
+            play.await_finish()
 
     def play_async(self, song_index=0, start=0, callback=None) -> Event:
         """Play the song in a new thread and return the event that will be set
@@ -694,8 +701,9 @@ class GameMusic:
     def stop(self):
         """Stop the song's playback."""
 
-        self.playback_state.stopped = True
-        self.now_playing = None
+        if self.now_playing is not None:
+            self.now_playing.stop()
+            self.now_playing = None
     
     def _get_stream_data(self):
         try:
