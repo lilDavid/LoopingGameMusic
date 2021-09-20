@@ -13,10 +13,6 @@ import sounddevice as sd
 import soundfile as sf
 
 
-volume: float = 1.0
-paused: bool = False
-
-
 class LoopPoints(NamedTuple):
     """A song part's loop points. The song will play to *start* samples, then
     play the section from *start* to *end* samples indefinitely."""
@@ -180,7 +176,7 @@ class SongTags:
         return '; '.join(self.to_str_list())
 
 
-class SongLoop(ABC):
+class SongPart(ABC):
     """A streamed loop for music files that supports variable mixing."""
 
     loop: Union[LoopPoints, None]
@@ -193,17 +189,12 @@ class SongLoop(ABC):
         variants: Union[Sequence, Mapping],
         layers: Union[Sequence, Mapping, None] = None,
         loopstart: int = 0,
-        loopend: int = None,
-        blocksize: int = 2048,
-        buffersize: int = 20
+        loopend: int = None
     ):
-        self.tags, self.name, self.block_size, self.buffer_size = (
-            tags, name, blocksize, buffersize)
+        self.tags, self.name = tags, name
         self.set_loop(loopstart, loopend)
         self._intialize_tracklist(variants, layers)
 
-        self._dataqueue = q.Queue(maxsize=buffersize)
-        self.stopped = False
         self._position = 0
 
     def set_loop(self, start, end):
@@ -213,7 +204,7 @@ class SongLoop(ABC):
         self.loop = LoopPoints(start, end)
         if None in self.loop:
             self.loop = None
-            self.read_data = self._read_data
+            self.read_data = self._get_frames
         else:
             self.read_data = self._read_looping_data
 
@@ -273,34 +264,30 @@ class SongLoop(ABC):
     def _get_frames(self, frames: int):
         ...
 
-    def read_data(self):
+    def read_data(self, amount: int):
         """Read the next data chunk and advance the playhead accordingly."""
 
         self.read_data = self._read_looping_data if self.loop \
-            else self._read_data
-        return self.read_data()
+            else self._get_frames
+        return self.read_data(amount)
 
-    def _read_looping_data(self):
+    def _read_looping_data(self, amount):
         remaining = self.loop.end - self._position
-        if remaining < self.block_size:
-            return self._read_end_of_loop(remaining)
+        if remaining < amount:
+            return self._read_end_of_loop(remaining, amount)
         else:
-            return self._get_frames(self.block_size)
+            return self._get_frames(amount)
 
-    def _read_end_of_loop(self, remaining):
+    def _read_end_of_loop(self, remaining, total):
         alpha = self._get_frames(remaining)
         self.seek(self.loop.start)
-        bravo = self._get_frames(self.block_size - len(alpha))
+        bravo = self._get_frames(total - len(alpha))
         concat = self._concatenate(alpha, bravo)
         return concat
 
     @abstractmethod
     def _concatenate(self, alpha, bravo):
         ...
-
-    def _read_data(self):
-        data = self._get_frames(self.block_size)
-        return data
 
     def variants(self):
         """Get and return the song's set of variant names or numbers."""
@@ -368,7 +355,7 @@ class SongLoop(ABC):
         """Enable a layer."""
 
         self._set_layer_volume(layer, volume)
-        self._set_layer(self, layer, self._active_layers.add)
+        self._set_layer(layer, self._active_layers.add)
 
     def set_layer_volume(self, layer, volume):
         """Set the volume for a layer."""
@@ -383,7 +370,7 @@ class SongLoop(ABC):
         """Disable a layer."""
 
         self._set_layer_volume(layer, 0.0)
-        self._set_layer(self, layer, self._active_layers.discard)
+        self._set_layer(layer, self._active_layers.discard)
 
     def add_layers(self, layers: Iterable):
         """Enable layers from the iterable."""
@@ -429,110 +416,33 @@ class SongLoop(ABC):
         for layer, bit in zip(self._layers, bitwise_iter(layers, pad=True)):
             self.set_layer_volume(layer, bit)
 
-    def play(self,
-             start=0,
-             stream: sd.OutputStream = None,
-             callback: Callable = None,
-             finish_event: Event = None
-             ):
-        """Play the song, either to a new stream or to the provided one."""
+    def prefill(self, queue: q.Queue, blocksize):
+        """Preload the song's data into the given queue."""
+
+        for _ in range(queue.maxsize):
+            data = self.read_data(blocksize)
+            if not len(data):
+                break
+            queue.put_nowait(data)
+
+    def enqueue_data_until_stopped(self, queue: q.Queue, blocksize, stop_state, callback=None):
+        """Continuously load song data until the song is stopped.
+
+        This will block until then."""
 
         if callback is None:
             def callback():
                 pass
 
-        self._restart_from(start)
-
-        finish_event = finish_event or Event()
-        if stream is None:
-            stream = sd.OutputStream(
-                samplerate=self.sample_rate(),
-                blocksize=self.block_size,
-                channels=self.channels(),
-                callback=self.stream_callback,
-                finished_callback=finish_event.set
-            )
-        with stream:
-            self._enqueue_data_until_stopped(callback)
-            finish_event.wait()
-
-    def _restart_from(self, start):
-        self.seek(start)
-        self.stopped = False
-        self.prefill_queue()
-
-    def prefill_queue(self):
-        """Preload the song's data."""
-
-        for _ in range(self.buffer_size):
-            data = self.read_data()
-            if not len(data):
-                break
-            self._dataqueue.put_nowait(data)
-
-    def _enqueue_data_until_stopped(self, callback):
         data = [0]
-        while len(data) and not self.stopped:
+        while len(data) and not stop_state.stopped:
             callback()
-            data = self.read_data()
-            self._dataqueue.put(data)
-        if self.stopped:
-            with self._dataqueue.mutex:
-                self._dataqueue.queue.clear()
-        self._dataqueue.put(self._get_frames(0))
-
-    def play_async(self, start=0, callback=None) -> Event:
-        """Play the song in a stream in a new thread and return the event that
-        will be set if and when it finishes."""
-
-        finish = Event()
-        Thread(
-            daemon=True,
-            target=lambda: self.play(
-                start=start,
-                callback=callback,
-                finish_event=finish
-            )
-        ).start()
-        return finish
-
-    def stop(self):
-        """Stop the song's playback."""
-
-        self.stopped = True
-
-    def stream_callback(self, outdata, frames, time, status):
-        """Write the song's data into the stream into which it's playing."""
-
-        self._raise_for_stream_status(frames, status)
-        data = self._get_stream_data()
-        self._copy_data_into_stream(outdata, data)
-
-    def _raise_for_stream_status(self, frames, status):
-        assert frames == self.block_size
-        if status.output_underflow:
-            raise sd.CallbackAbort('Output underflow: increase blocksize?')
-        assert not status
-
-    def _get_stream_data(self):
-        try:
-            if paused:
-                data = np.zeros((self.block_size, 2))
-            else:
-                data = self._dataqueue.get_nowait()
-                data = self._mix_data(data) * volume
-        except q.Empty as e:
-            raise sd.CallbackAbort(
-                'Buffer is empty: increase buffersize?') from e
-        return data
-
-    def _copy_data_into_stream(self, outdata, indata):
-        if len(indata) < len(outdata):
-            outdata[:len(indata)] = indata
-            outdata[len(indata):].fill(0)
-            raise sd.CallbackStop
-        else:
-            outdata[:] = indata
+            data = self.read_data(blocksize)
+            queue.put(data)
+        if stop_state.stopped:
+            with queue.mutex:
+                queue.queue.clear()
+        queue.put(self._get_frames(0))
 
     def __len__(self):
         if self.loop:
@@ -557,29 +467,26 @@ class SongLoop(ABC):
         ...
 
 
-class MultiTrackLoop(SongLoop):
+class MultiTrackLoop(SongPart):
 
-    def __init__(self,
-                 tags: SongTags,
-                 name: str,
-                 soundfile: sf.SoundFile,
-                 variants: Union[Sequence, Mapping],
-                 layers: Union[Sequence, Mapping] = None,
-                 loopstart: int = 0,
-                 loopend: int = None,
-                 channels: int = 2,
-                 blocksize: int = 2048,
-                 buffersize: int = 20
-                 ):
+    def __init__(
+        self,
+        tags: SongTags,
+        name: str,
+        soundfile: sf.SoundFile,
+        variants: Union[Sequence, Mapping],
+        layers: Union[Sequence, Mapping] = None,
+        loopstart: int = 0,
+        loopend: int = None,
+        channels: int = 2
+    ):
         super().__init__(
             tags,
             name,
             variants,
             layers,
             loopstart,
-            loopend,
-            blocksize,
-            buffersize
+            loopend
         )
 
         if not soundfile.seekable():
@@ -623,27 +530,24 @@ class MultiTrackLoop(SongLoop):
         return np.concatenate((alpha, bravo))
 
 
-class MultiFileLoop(SongLoop):
+class MultiFileLoop(SongPart):
 
-    def __init__(self,
-                 tags: SongTags,
-                 name: str,
-                 variants: Union[Sequence[sf.SoundFile], Mapping[Any, sf.SoundFile]],
-                 layers: Union[Sequence[sf.SoundFile], Mapping[Any, sf.SoundFile], None] = None,
-                 loopstart: int = 0,
-                 loopend: int = 0,
-                 blocksize: int = 2048,
-                 buffersize: int = 20
-                 ):
+    def __init__(
+        self,
+        tags: SongTags,
+        name: str,
+        variants: (Union[Sequence[sf.SoundFile], Mapping[Any, sf.SoundFile]]),
+        layers: (Union[Sequence[sf.SoundFile], Mapping[Any, sf.SoundFile], None]) = None,
+        loopstart: int = 0,
+        loopend: int = 0
+    ):
         super().__init__(
             tags,
             name,
             variants,
             layers,
             loopstart,
-            loopend,
-            blocksize,
-            buffersize
+            loopend
         )
 
         # TODO maybe ensure the tracks are compatible
@@ -677,32 +581,163 @@ class MultiFileLoop(SongLoop):
         return [np.concatenate((a, b)) for a, b in zip(alpha, bravo)]
 
 
-def open_loop(
+class StreamPlayback:
+
+    def __init__(
+        self,
+        owner: 'GameMusic',
+        blocksize: int,
+        song: SongPart,
+        finish_event: Event = None
+    ):
+        self._finish_event = finish_event or Event()
+        self.owner = owner
+        self.song = song
+        self.stopped = False
+
+        def stream_callback(outdata, frames, time, status):
+            if self.stopped:
+                raise sd.CallbackStop
+            self._raise_for_stream_status(status)
+            if owner.playback_state.paused:
+                data = np.zeros((frames, 2))
+            else:
+                data = owner._get_stream_data()
+            self._copy_data_into_stream(outdata, data)
+
+        self.stream = sd.OutputStream(
+            samplerate=song.sample_rate(),
+            blocksize=blocksize,
+            channels=song.channels(),
+            callback=stream_callback,
+            finished_callback=self._finish_event.set
+        )
+    
+    def is_finished(self):
+        """Return true if the song is finished."""
+
+        return self._finish_event.is_set()
+    
+    def await_finish(self):
+        """Wait until the song finishes."""
+
+        self._finish_event.wait()
+    
+    def stop(self):
+        """Stop the song."""
+
+        self.stopped = True
+    
+    def _raise_for_stream_status(self, status):
+        if status.output_underflow:
+            raise sd.CallbackAbort('Output underflow: increase blocksize?')
+        assert not status
+
+    def _copy_data_into_stream(self, outdata, indata):
+        if len(indata) < len(outdata):
+            outdata[:len(indata)] = indata
+            outdata[len(indata):].fill(0)
+            raise sd.CallbackStop
+        else:
+            outdata[:] = indata
+
+
+class GameMusic:
+
+    @dataclass
+    class PlaybackState:
+        """Data relating to the current state of playback."""
+
+        paused: bool = False
+        volume: float = 1.0
+
+    def __init__(self, parts: Iterable[SongPart], buffersize = 20):
+        self.parts = tuple(parts)
+        self.parts_by_name = {part.name: part for part in parts}
+
+        self.now_playing = None
+        self._dataqueue = q.Queue(maxsize=buffersize)
+        self.playback_state = GameMusic.PlaybackState()
+
+    def get_song(self, song) -> SongPart:
+        """Get the song at the given index or with the given name."""
+
+        try:
+            return self.parts[song]
+        except IndexError:
+            pass
+        return self.parts_by_name[song]
+    
+    def __len__(self):
+        return len(self.parts)
+
+    def __contains__(self, song):
+        return song in self.parts_by_name or song in range(len(self.parts))
+    
+    def part_names(self):
+        """Return the names of all of this song's parts."""
+
+        return self.parts_by_name.keys()
+
+    def play(
+        self,
+        song_index=0,
+        start=0,
+        callback: Callable = None,
+        finish_event: Event = None
+    ):
+        """Play the song to a new stream."""
+
+        song = self.get_song(song_index)
+        song.seek(start)
+        self._dataqueue = q.Queue(self._dataqueue.maxsize)
+        song.prefill(self._dataqueue, blocksize=2048)
+
+        self.stop()
+        self.now_playing = StreamPlayback(self, 2048, song, finish_event)
+        
+        with self.now_playing.stream:
+            play = self.now_playing
+            song.enqueue_data_until_stopped(self._dataqueue, 2048, self.now_playing, callback)
+            play.await_finish()
+
+    def play_async(self, song_index=0, start=0, callback=None) -> Event:
+        """Play the song in a new thread and return the event that will be set
+        if and when it finishes."""
+
+        finish = Event()
+        Thread(
+            daemon=True,
+            target=lambda: self.play(song_index, start, callback, finish_event=finish)
+        ).start()
+        return finish
+
+    def stop(self):
+        """Stop the song's playback."""
+
+        if self.now_playing is not None:
+            self.now_playing.stop()
+            self.now_playing = None
+    
+    def _get_stream_data(self):
+        try:
+            data = self._dataqueue.get_nowait()
+            data = self.now_playing.song._mix_data(data) * self.playback_state.volume
+        except q.Empty as e:
+            raise sd.CallbackAbort('Buffer is empty: increase buffersize?') from e
+        return data
+
+
+def open_song(
     filename: str,
-    buffersize: int = 20,
-    blocksize: int = 2048
-) -> Union[None, SongLoop, Sequence[SongLoop]]:
-    """Open a song and return it as a single SongLoop object, a sequence of
-    them, or None depending on the number of parts the song has."""
-
-    loops = open_loops(filename, buffersize, blocksize)
-    if len(loops) == 0:
-        return None
-    if len(loops) == 1:
-        return loops[0]
-    return loops
-
-
-def open_loops(
-    filename: str,
-    buffersize: int = 20,
-    blocksize: int = 2048
-) -> Sequence[SongLoop]:
-    """Open a song and return it as a sequence of SongLoop objects."""
+    buffersize: int = 20
+) -> GameMusic:
+    """Open a song and return it a GameMusic object."""
 
     path = PurePath(filename)
     part_list = _create_part_list(path)
-    return [_get_song_part(buffersize, blocksize, path, partinfo) for partinfo in part_list]
+    part_list = [_get_song_part(path, partinfo) for partinfo in part_list]
+    return GameMusic(part_list, buffersize)
 
 
 def _create_part_list(path: PurePath):
@@ -716,7 +751,7 @@ def _create_part_list(path: PurePath):
     return file_list
 
 
-def _get_song_part(buffersize, blocksize, path: PurePath, partjson: Mapping):
+def _get_song_part(path: PurePath, partjson: Mapping):
     file = _get_main_filename(path, partjson)
     tags = mutagen.File(file)
     song_tags = SongTags(tags)
@@ -726,8 +761,6 @@ def _get_song_part(buffersize, blocksize, path: PurePath, partjson: Mapping):
 
     return [
         lambda: _get_classic_loop(
-            buffersize,
-            blocksize,
             path,
             partjson,
             song_tags,
@@ -736,8 +769,6 @@ def _get_song_part(buffersize, blocksize, path: PurePath, partjson: Mapping):
             part_name
         ),
         lambda: _get_multitrack_loop(
-            buffersize,
-            blocksize,
             partjson,
             file,
             song_tags,
@@ -777,8 +808,6 @@ def _get_loop_data(partjson, tags):
 
 
 def _get_classic_loop(
-    buffersize,
-    blocksize,
     path: PurePath,
     partjson: Mapping,
     song_tags,
@@ -792,9 +821,7 @@ def _get_classic_loop(
         _get_classic_tracks(path, partjson, 'variants'),
         _get_classic_tracks(path, partjson, 'layers'),
         loopstart,
-        loopend,
-        blocksize,
-        buffersize
+        loopend
     )
 
 
@@ -810,8 +837,6 @@ def _get_classic_tracks(path: PurePath, partjson: Mapping, key):
 
 
 def _get_multitrack_loop(
-    buffersize,
-    blocksize,
     partjson: Mapping,
     path: PurePath,
     song_tags,
@@ -834,7 +859,5 @@ def _get_multitrack_loop(
         layers,
         loopstart,
         loopend,
-        2,
-        blocksize,
-        buffersize
+        2
     )
