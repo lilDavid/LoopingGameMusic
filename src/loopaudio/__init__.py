@@ -582,6 +582,7 @@ class MultiFileLoop(SongPart):
 
 
 class StreamPlayback:
+    """Information about the playback of the current song."""
 
     def __init__(
         self,
@@ -593,22 +594,34 @@ class StreamPlayback:
         self._finish_event = finish_event or Event()
         self.owner = owner
         self.song = song
+        self.blocksize = blocksize
         self.stopped = False
+
+    def initialize_stream(self):
+        """Initialize a stream to play into and set the "stream" field.
+
+        If you're reading the data to output into something other than
+        sounddevice, it is not necessary to call this method."""
 
         def stream_callback(outdata, frames, time, status):
             if self.stopped:
                 raise sd.CallbackStop
+            assert frames == self.blocksize
             self._raise_for_stream_status(status)
-            if owner.playback_state.paused:
+            if self.owner.playback_state.paused:
                 data = np.zeros((frames, 2))
             else:
-                data = owner._get_stream_data()
+                try:
+                    data = self.owner.get_data()
+                except q.Empty as e:
+                    raise sd.CallbackAbort(
+                        'Buffer is empty: increase buffersize?') from e
             self._copy_data_into_stream(outdata, data)
 
         self.stream = sd.OutputStream(
-            samplerate=song.sample_rate(),
-            blocksize=blocksize,
-            channels=song.channels(),
+            samplerate=self.song.sample_rate(),
+            blocksize=self.blocksize,
+            channels=self.song.channels(),
             callback=stream_callback,
             finished_callback=self._finish_event.set
         )
@@ -627,7 +640,20 @@ class StreamPlayback:
         """Stop the song."""
 
         self.stopped = True
-    
+
+    def read_data(self, callback=None):
+        """Enqueue data until the song is exhausted or this playback is stopped."""
+
+        if not callback:
+            def callback(): pass
+
+        self.song.enqueue_data_until_stopped(
+            self.owner._dataqueue,
+            self.blocksize,
+            self,
+            callback
+        )
+
     def _raise_for_stream_status(self, status):
         if status.output_underflow:
             raise sd.CallbackAbort('Output underflow: increase blocksize?')
@@ -643,6 +669,8 @@ class StreamPlayback:
 
 
 class GameMusic:
+    """An item of looping game music. Contains multiple parts which can be
+    selected and played."""
 
     @dataclass
     class PlaybackState:
@@ -679,36 +707,68 @@ class GameMusic:
 
         return self.parts_by_name.keys()
 
+    def set_playing(
+        self,
+        song_index,
+        start: int = 0,
+        blocksize: Union[int, float] = 2048,
+        finish_event: Event = None
+    ):
+        """Initialize playback of a part without playing the audio."""
+
+        song = self.get_song(song_index)
+        if isinstance(blocksize, float):
+            blocksize = int(song.sample_rate() * blocksize)
+        self._initialize_data_queue(start, song, blocksize)
+        self._initialize_playback(finish_event, song, blocksize)
+        return song
+
+    def _initialize_data_queue(self, start, song, blocksize):
+        self._dataqueue = q.Queue(self._dataqueue.maxsize)
+        song.seek(start)
+        song.prefill(self._dataqueue, blocksize=blocksize)
+
+    def _initialize_playback(self, finish_event, song, blocksize):
+        self.stop()
+        self.now_playing = StreamPlayback(self, blocksize, song, finish_event)
+
     def play(
         self,
         song_index=0,
         start=0,
         callback: Callable = None,
-        finish_event: Event = None
+        finish_event: Event = None,
+        blocksize: int = 2048
     ):
-        """Play the song to a new stream."""
+        """Play a part to a new stream."""
 
-        song = self.get_song(song_index)
-        song.seek(start)
-        self._dataqueue = q.Queue(self._dataqueue.maxsize)
-        song.prefill(self._dataqueue, blocksize=2048)
-
-        self.stop()
-        self.now_playing = StreamPlayback(self, 2048, song, finish_event)
-        
+        self.set_playing(song_index, start, blocksize, finish_event)
+        self.now_playing.initialize_stream()
         with self.now_playing.stream:
             play = self.now_playing
-            song.enqueue_data_until_stopped(self._dataqueue, 2048, self.now_playing, callback)
+            self.now_playing.read_data(callback)
             play.await_finish()
 
-    def play_async(self, song_index=0, start=0, callback=None) -> Event:
+    def play_async(
+        self,
+        song_index=0,
+        start: int = 0,
+        callback: Callable = None,
+        blocksize: int = 2048
+    ) -> Event:
         """Play the song in a new thread and return the event that will be set
         if and when it finishes."""
 
         finish = Event()
         Thread(
             daemon=True,
-            target=lambda: self.play(song_index, start, callback, finish_event=finish)
+            target=lambda: self.play(
+                song_index,
+                start,
+                callback,
+                blocksize=blocksize,
+                finish_event=finish
+            )
         ).start()
         return finish
 
@@ -718,13 +778,13 @@ class GameMusic:
         if self.now_playing is not None:
             self.now_playing.stop()
             self.now_playing = None
-    
-    def _get_stream_data(self):
-        try:
-            data = self._dataqueue.get_nowait()
-            data = self.now_playing.song._mix_data(data) * self.playback_state.volume
-        except q.Empty as e:
-            raise sd.CallbackAbort('Buffer is empty: increase buffersize?') from e
+
+    def get_data(self):
+        """Get and return the next block of data if it's buffered, raising an
+        excpetion if the buffer is empty."""
+
+        data = self._dataqueue.get_nowait()
+        data = self.now_playing.song._mix_data(data) * self.playback_state.volume
         return data
 
 
