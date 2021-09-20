@@ -87,7 +87,7 @@ class LoopGUI:
                     filetypes=[("JSON files", "json")]
                 )
             )
-        
+
         ttk.Button(
             master,
             text="Pick file",
@@ -168,7 +168,7 @@ class LoopGUI:
         def toggle_pause():
             la.paused = not la.paused
             self.pause_text.set(('Pause', 'Play')[la.paused])
-        
+
         ttk.Button(
             master,
             textvariable=self.pause_text,
@@ -182,7 +182,7 @@ class LoopGUI:
             vol = float(vol)
             la.volume = vol
             volpercent.set(f'Volume: {vol:3.0%}')
-        
+
         set_volume(la.volume)
 
         tk.Label(
@@ -295,7 +295,7 @@ class LoopGUI:
 
         def select_variant():
             song.set_variant(variants[selected_variant.get()])
-        
+
         radiobuttons = [
             self.variant_radio_button(
                 selected_variant,
@@ -345,7 +345,7 @@ class LoopGUI:
         if song.variants():
             song.set_variant(next(iter(song.variants())))
         song.set_layers_from_bits(0)
-    
+
     def update_now_playing(self, song):
         self.now_playing.set('\n'.join(song.tags.to_str_list()))
 
@@ -399,7 +399,7 @@ class SCMImportGUI:
 
         manage.grid(row=0)
         return manage
-    
+
     def create_part_button(self, *args, **kwargs):
         button = ttk.Button(*args, **kwargs)
         button.pack(side='top')
@@ -468,7 +468,7 @@ class SCMImportGUI:
             dialog_and_print_error(exc, 'Could not create song files')
         else:
             tkinter.messagebox.showinfo(message="Loop created!")
-    
+
     def add_part(self):
         partui = SongPartUI(
             self.part_ui,
@@ -479,7 +479,7 @@ class SCMImportGUI:
         self.parts.append(partui)
         self.part_ui.add(partui.panel, text="<untitled>")
         disable_for_size(self.remove_part_button, self.parts, 1)
-    
+
     def remove_part(self):
         partui = self.parts.pop()
         partui.panel.destroy()
@@ -499,7 +499,7 @@ class TkVarMetadata:
         self.number = tk.StringVar(master)
         self.year = tk.StringVar(master)
         self.games = []
-    
+
     def to_get_brstm_meta(self):
         return Metadata(
             title=self.title.get(),
@@ -511,7 +511,7 @@ class TkVarMetadata:
         )
 
 
-def create_window(master, title = None):
+def create_window(master, title=None):
     window = tk.Toplevel(master)
     if title is not None:
         window.title(title)
@@ -534,11 +534,11 @@ class EditableListEntry:
             self.add_field_entry(i, var)
         self.create_field_buttons()
         self.grid_field_buttons()
-        
+
     def add_field_entry(self, row, var):
         entry = tk.Entry(self.frame, textvariable=var)
         entry.grid(row=row, columnspan=2, sticky='EW')
-    
+
     def create_field_buttons(self):
         self.add_button = ttk.Button(
             self.frame,
@@ -550,18 +550,18 @@ class EditableListEntry:
             text='-',
             command=self.remove_field
         )
-    
+
     def grid_field_buttons(self):
         self.add_button.grid(row=len(self.sequence), column=0)
         self.remove_button.grid(row=len(self.sequence), column=1)
         disable_for_size(self.remove_button, self.sequence, 0)
-        
+
     def add_field(self):
         var = tk.StringVar(self.frame)
         self.add_field_entry(len(self.sequence), var)
         self.sequence.append(var)
         self.grid_field_buttons()
-    
+
     def remove_field(self):
         entries = self.frame.grid_slaves(row=len(self.sequence) - 1)
         self.sequence.pop()
@@ -583,15 +583,13 @@ class SongPartUI:
         self.create_description_panel(nb, index)
         self.variant_panel, self.variants = self.create_track_panel(
             label='Variant',
-            description=('Different versions of the same song. '
-                + 'Only one plays at at time.'),
+            description='Different versions of the same song. Only one plays at at time.',
             row=3,
             minlength=1
         )
         self.layer_panel, self.layers = self.create_track_panel(
             label='Layer',
-            description=('Any combination of layers may play'
-                + 'over the selected variant.'),
+            description='Any combination of layers may play over the selected variant.',
             row=4,
             minlength=0
         )
@@ -610,7 +608,7 @@ class SongPartUI:
         self.create_metadata_button(name_panel)
         name_panel.columnconfigure(1, weight=1)
         name_panel.grid(row=0, sticky="EW")
-    
+
     def create_part_name_entry(self, nb, index, master):
         def set_widget_name(*_):
             nb.tab(index + 1, text=self.part_name.get() or "<untitled>")
@@ -623,11 +621,11 @@ class SongPartUI:
             1
         )
         name_entry.bind("<FocusOut>", set_widget_name)
-    
+
     def create_filename_field(self, master):
         self.filename = tk.StringVar(self.panel)
         create_field(master, 'Filename:', self.filename, 2)
-    
+
     def create_metadata_button(self, master):
         button = ttk.Button(
             master,
@@ -635,11 +633,11 @@ class SongPartUI:
             text='Other metadata...'
         )
         button.grid(row=3, column=0, columnspan=2, sticky='E')
-    
+
     def create_metadata_dialog(self, master):
         window = create_window(master, 'Song metadata')
         self.create_metadata_fields(window)
-    
+
     def create_metadata_fields(self, master):
         create_field(master, 'Title:', self.metadata.title, 0)
         create_multi_field(master, 'Artist:', self.metadata.artists, 1)
@@ -660,10 +658,12 @@ class SongPartUI:
 
         tk.Label(panel, text=description).grid(row=0, columnspan=2)
         self.create_table_header(label, panel)
-        add_button, remove_button = self.create_track_buttons(minlength, panel, tracks)
+        add_button, remove_button = self.create_track_buttons(
+            minlength, panel, tracks)
         self.grid_buttons(add_button, remove_button, tracks, minlength)
         for _ in range(minlength):
-            self.push_field(panel, tracks, add_button, remove_button, minlength)
+            self.push_field(panel, tracks, add_button,
+                            remove_button, minlength)
 
         panel.columnconfigure(0, weight=1)
         panel.columnconfigure(1, weight=1)
@@ -688,9 +688,9 @@ class SongPartUI:
             command=lambda: self.pop_field(
                 tracks, add_button, remove_button, minlength),
             text="-")
-            
+
         return add_button, remove_button
-    
+
     def grid_buttons(self, add, remove, collection, minsize):
         row = len(collection) + 2
         add.grid(row=row, column=0, sticky="EW")
@@ -703,7 +703,7 @@ class SongPartUI:
                    addbutton: ttk.Button,
                    removebutton: ttk.Button,
                    minsize: int
-                  ):
+                   ):
         name = tk.StringVar(panel)
         url = tk.StringVar(panel)
         row = len(rowdata) + 2
@@ -712,7 +712,7 @@ class SongPartUI:
         rowdata.append((name, url, nfield, ufield))
 
         self.grid_buttons(addbutton, removebutton, rowdata, minsize)
-    
+
     def create_track_entry(self, master, variable, row, column):
         entry = tk.Entry(master, textvariable=variable)
         entry.grid(row=row, column=column, sticky="EW")
@@ -723,24 +723,24 @@ class SongPartUI:
                   addbutton: ttk.Button,
                   removebutton: ttk.Button,
                   requirement: int
-                 ):
+                  ):
         item = rowdata.pop()
         self.grid_buttons(addbutton, removebutton, rowdata, requirement)
         for i in item[2:4]:
             i.destroy()
-    
+
     def get_part_name(self) -> str:
         return self.part_name.get()
 
     def get_title(self) -> str:
         return self.metadata.title
-    
+
     def get_variants(self) -> Sequence[Tuple]:
         return [(var[0].get(), var[1].get()) for var in self.variants]
-    
+
     def get_layers(self) -> Sequence[Tuple]:
         return [(lay[0].get(), lay[1].get()) for lay in self.layers]
-    
+
     def create_song_info(self) -> SongPart:
         return SongPart(
             self.part_name.get(),
