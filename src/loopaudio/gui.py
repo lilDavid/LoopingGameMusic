@@ -336,8 +336,8 @@ class LoopGUI:
         def layer_set_function(layer, variable):
             return lambda: song.set_layer_volume(layer, variable.get())
 
-        for lay in song.layers():
-            self.layer_check_button(layer_set_function, lay)
+        self.activelayers = [self.layer_check_button(layer_set_function, lay)
+            for lay in song.layers()]
 
     def layer_check_button(self, layer_set_function, lay):
         var = tk.IntVar()
@@ -349,7 +349,7 @@ class LoopGUI:
         )
         check.pack(anchor=tk.W)
         var.set(0)
-        return check
+        return var
 
     def reset_song_variants_and_layers(self, song):
         if song.variants():
@@ -357,6 +357,7 @@ class LoopGUI:
             song.set_layers_from_bits(0)
         else:
             song.set_layers_from_bits(1)
+            self.activelayers[0].set(1)
     
     def update_now_playing(self, song):
         self.now_playing.set('\n'.join(song.tags.to_str_list()))
