@@ -60,6 +60,15 @@ class SongPart(NamedTuple):
 
         return next(self.iter_tracks()).url
 
+    def with_fields(self, name=..., file=..., meta=..., variants=..., layers=...):
+        return SongPart(
+            self.name if name is Ellipsis else name,
+            self.file if file is Ellipsis else file,
+            self.meta if meta is Ellipsis else meta,
+            self.variants if variants is Ellipsis else variants,
+            self.layers if layers is Ellipsis else layers
+        )
+
 
 def create_song(
     json_file: Union[str, PurePath],
@@ -73,6 +82,18 @@ def create_song(
     parts = create_song_parts(json_path, info)
     parts = parts[0] if len(parts) == 1 else parts
     json.dump(parts, open(json_file, "w"))
+
+
+def create_song_audio_only(
+    file_path: Union[str, PurePath],
+    info: SongPart
+) -> None:
+    """Download a song from SmashCustomMusic."""
+    
+    path = Path(file_path)
+    info = info.with_fields(file=path.name)
+    create_directory_for_file(path)
+    create_part(path, info)
 
 
 def create_directory_for_file(file: Path) -> None:
@@ -117,12 +138,20 @@ def create_part(
     variant_map, layer_map = download_and_convert_brstms(file_path, songinfo)
     files = list_track_files(file_path, variant_map, layer_map)
 
-    song_file_path = create_multitrack_file(
-        file_path,
-        songinfo,
-        metadata,
-        files
-    )
+    try:
+        song_file_path = create_multitrack_file(
+            file_path,
+            songinfo,
+            metadata,
+            files
+        )
+    except RuntimeError as e:
+        raise ValueError(
+            f"Invalid sound file: '{songinfo.file}'\n" +
+            f"(full path: {file_path.parent / songinfo.file})"
+        ) from e
+    finally:
+        remove_and_close(files)
     add_metadata(metadata, song_file_path)
 
     return {
@@ -283,7 +312,7 @@ def create_multitrack_file(
     songfile = create_sound_file(song_path, songinfo, metadata.samplerate)
     merge_sound_files(files, songfile)
     lengthen_file_if_needed(metadata, files, songfile)
-    close_files(files, songfile)
+    songfile.close()
     
     return song_path
 
@@ -335,13 +364,12 @@ def lengthen_file_if_needed(
         copy_chunk(songfile, files, 2048)
 
 
-def close_files(files_to_remove: Iterable[sf.SoundFile], file_to_not_remove: sf.SoundFile):
-    """Close all files provided, and remove all of the files in the iterable."""
+def remove_and_close(files: Iterable[sf.SoundFile]):
+    """Close and remove all of the files in the iterable."""
 
-    for file in files_to_remove:
+    for file in files:
         file.close()
         Path(file.name).unlink()
-    file_to_not_remove.close()
 
 
 def copy_chunk(

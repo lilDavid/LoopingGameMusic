@@ -7,7 +7,7 @@ from tkinter import ttk
 from typing import Sequence, Sized, Tuple
 
 import loopaudio as la
-from loopaudio.convert import Metadata, SongPart, SongTrackURL, create_song
+from loopaudio.convert import Metadata, SongPart, SongTrackURL, create_song, create_song_audio_only
 
 
 class SongProgressUpdater:
@@ -472,10 +472,16 @@ class SCMImportGUI:
 
     def start_conversion(self):
         try:
-            create_song(
-                self.file_name.get(),
-                [part.create_song_info() for part in self.parts]
-            )
+            if self.use_json.get():
+                create_song(
+                    self.file_name.get(),
+                    [part.create_song_info() for part in self.parts]
+                )
+            else:
+                create_song_audio_only(
+                    self.file_name.get(),
+                    self.parts[0].create_song_info()
+                )
         except Exception as exc:
             dialog_and_print_error(exc, 'Could not create song files')
         else:
