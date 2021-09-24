@@ -206,7 +206,7 @@ def get_metadata_from_table(table: BeautifulSoup) -> Metadata:
     fields filled, and it may have the loop information and other tags filled
     if present in the table."""
     
-    game = table[1].text.strip()
+    game = get_multiple_values(table[1])
     title = table[3].text.strip()
     if table[31].text == 'Song Does Not Loop':
         loop_start = loop_end = None
@@ -222,6 +222,15 @@ def get_metadata_from_table(table: BeautifulSoup) -> Metadata:
         loop_end=loop_end,
         samplerate=samplerate
     )
+
+def get_multiple_values(table_cell: BeautifulSoup):
+    """Extract multiple values (read: game appearances) from a table cell.
+    
+    Each value must be in its own <a> tag or they'll be read as a single value
+    together. That is to say, this is designed solely to extract game titles
+    (which are always linked) from the table."""
+
+    return [item.text.strip() for item in table_cell.find_all('a')]
 
 
 def download_and_convert_brstms(
