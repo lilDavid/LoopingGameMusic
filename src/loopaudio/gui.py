@@ -1,3 +1,4 @@
+import itertools
 import sys
 import tkinter as tk
 import tkinter.filedialog
@@ -7,7 +8,11 @@ from tkinter import ttk
 from typing import Sequence, Sized, Tuple
 
 import loopaudio as la
-from loopaudio.convert import Metadata, SongPart, SongTrackURL, create_song, create_song_audio_only
+from loopaudio.convert import (Metadata, SongPart, SongTrackURL, create_song,
+                               create_song_audio_only)
+
+
+TTK_ENABLED = '!disabled'
 
 
 class SongProgressUpdater:
@@ -262,12 +267,12 @@ class LoopGUI:
             text="Stop",
             command=self.stop_playback
         )
-        self.stop_button.state(["disabled"])
+        self.stop_button.state([tk.DISABLED])
         self.stop_button.pack(side=tk.LEFT)
 
     def stop_playback(self):
         self.pause_text.set('Pause')
-        self.stop_button.state(["disabled"])
+        self.stop_button.state([tk.DISABLED])
         self.now_playing.set("")
         self.loaded_song.stop()
         self.loaded_song.playback_state.paused = False
@@ -292,7 +297,7 @@ class LoopGUI:
         pb = SongProgressUpdater(loop, self.progress_bar)
         pb.start()
         self.loaded_song.play_async(part, callback=pb.update)
-        self.stop_button.state(["!disabled"])
+        self.stop_button.state([TTK_ENABLED])
 
     def populate_variant_panel(self, song):
         self.clear_widget(self.variant_pane)
@@ -405,7 +410,7 @@ class SCMImportGUI:
         )
         self.remove_part_button = self.create_part_button(
             manage,
-            default="disabled",
+            default=tk.DISABLED,
             text="Remove last part",
             command=self.remove_part
         )
@@ -446,7 +451,8 @@ class SCMImportGUI:
             text='Use JSON',
             offvalue=False,
             onvalue=True,
-            variable=self.use_json
+            variable=self.use_json,
+            command=self.update_json_use
         )
         json_btn.grid(row=0, column=0, sticky='W', padx=5)
         self.use_json.set(True)
@@ -503,11 +509,18 @@ class SCMImportGUI:
         partui = self.parts.pop()
         partui.panel.destroy()
         disable_for_size(self.remove_part_button, self.parts, 1)
+    
+    def update_json_use(self):
+        for i in itertools.chain((0,), range(2, len(self.part_ui.tabs()))):
+            self.part_ui.tab(
+                i,
+                state=tk.NORMAL if self.use_json.get() else tk.DISABLED
+            )
 
 
 def disable_for_size(button: ttk.Button, collection: Sized, minsize: int):
-    state = '!' if len(collection) > minsize else ''
-    button.state([f'{state}disabled'])
+    state = TTK_ENABLED if len(collection) > minsize else tk.DISABLED
+    button.state([state])
 
 
 class TkVarMetadata:
