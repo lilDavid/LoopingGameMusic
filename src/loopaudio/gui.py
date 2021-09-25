@@ -1,13 +1,18 @@
+import itertools
 import sys
 import tkinter as tk
 import tkinter.filedialog
 import tkinter.messagebox
 import traceback
 from tkinter import ttk
-from typing import Sequence, Sized, Tuple
+from typing import NamedTuple, Sequence, Sized, Tuple
 
 import loopaudio as la
-from loopaudio.convert import Metadata, SongPart, SongTrackURL, create_song
+from loopaudio.convert import (Metadata, SongPart, SongTrackURL, create_song,
+                               create_song_audio_only)
+
+
+TTK_ENABLED = '!disabled'
 
 
 class SongProgressUpdater:
@@ -262,12 +267,12 @@ class LoopGUI:
             text="Stop",
             command=self.stop_playback
         )
-        self.stop_button.state(["disabled"])
+        self.stop_button.state([tk.DISABLED])
         self.stop_button.pack(side=tk.LEFT)
 
     def stop_playback(self):
         self.pause_text.set('Pause')
-        self.stop_button.state(["disabled"])
+        self.stop_button.state([tk.DISABLED])
         self.now_playing.set("")
         self.loaded_song.stop()
         self.loaded_song.playback_state.paused = False
@@ -292,7 +297,7 @@ class LoopGUI:
         pb = SongProgressUpdater(loop, self.progress_bar)
         pb.start()
         self.loaded_song.play_async(part, callback=pb.update)
-        self.stop_button.state(["!disabled"])
+        self.stop_button.state([TTK_ENABLED])
 
     def populate_variant_panel(self, song):
         self.clear_widget(self.variant_pane)
@@ -336,8 +341,8 @@ class LoopGUI:
         def layer_set_function(layer, variable):
             return lambda: song.set_layer_volume(layer, variable.get())
 
-        for lay in song.layers():
-            self.layer_check_button(layer_set_function, lay)
+        self.activelayers = [self.layer_check_button(layer_set_function, lay)
+            for lay in song.layers()]
 
     def layer_check_button(self, layer_set_function, lay):
         var = tk.IntVar()
@@ -349,7 +354,7 @@ class LoopGUI:
         )
         check.pack(anchor=tk.W)
         var.set(0)
-        return check
+        return var
 
     def reset_song_variants_and_layers(self, song):
         if song.variants():
@@ -357,6 +362,7 @@ class LoopGUI:
             song.set_layers_from_bits(0)
         else:
             song.set_layers_from_bits(1)
+            self.activelayers[0].set(1)
     
     def update_now_playing(self, song):
         self.now_playing.set('\n'.join(song.tags.to_str_list()))
@@ -404,7 +410,7 @@ class SCMImportGUI:
         )
         self.remove_part_button = self.create_part_button(
             manage,
-            default="disabled",
+            default=tk.DISABLED,
             text="Remove last part",
             command=self.remove_part
         )
@@ -445,7 +451,8 @@ class SCMImportGUI:
             text='Use JSON',
             offvalue=False,
             onvalue=True,
-            variable=self.use_json
+            variable=self.use_json,
+            command=self.update_json_use
         )
         json_btn.grid(row=0, column=0, sticky='W', padx=5)
         self.use_json.set(True)
@@ -472,10 +479,16 @@ class SCMImportGUI:
 
     def start_conversion(self):
         try:
-            create_song(
-                self.file_name.get(),
-                [part.create_song_info() for part in self.parts]
-            )
+            if self.use_json.get():
+                create_song(
+                    self.file_name.get(),
+                    [part.create_song_info() for part in self.parts]
+                )
+            else:
+                create_song_audio_only(
+                    self.file_name.get(),
+                    self.parts[0].create_song_info()
+                )
         except Exception as exc:
             dialog_and_print_error(exc, 'Could not create song files')
         else:
@@ -486,7 +499,8 @@ class SCMImportGUI:
             self.part_ui,
             row=0,
             nb=self.part_ui,
-            index=len(self.parts)
+            index=len(self.parts),
+            use_json=self.use_json
         )
         self.parts.append(partui)
         self.part_ui.add(partui.panel, text="<untitled>")
@@ -496,11 +510,33 @@ class SCMImportGUI:
         partui = self.parts.pop()
         partui.panel.destroy()
         disable_for_size(self.remove_part_button, self.parts, 1)
+    
+    def update_json_use(self):
+        enabled = tk.NORMAL if self.use_json.get() else tk.DISABLED
+        allowed_part = self.parts[0]
+        self.update_tab_usability(enabled)
+        self.update_part_id_usability(enabled, allowed_part)
+        self.update_track_name_usability(enabled, allowed_part)
 
+    def update_tab_usability(self, active_state):
+        for i in itertools.chain((0,), range(2, len(self.part_ui.tabs()))):
+            self.part_ui.tab(i, state=active_state)
+    
+    def update_part_id_usability(self, active_state, part_ui: 'SongPartUI'):
+        part_ui.filename_field.configure(state=active_state)
+        part_ui.part_name_entry.configure(state=active_state)
+    
+    def update_track_name_usability(self, active_state, part_ui: 'SongPartUI'):
+        self.enable_disable_tracks(active_state, part_ui.variants)
+        self.enable_disable_tracks(active_state, part_ui.layers)
+    
+    def enable_disable_tracks(self, active_state, tracklist):
+        for track in tracklist:
+            track.name_entry.configure(state=active_state)
 
 def disable_for_size(button: ttk.Button, collection: Sized, minsize: int):
-    state = '!' if len(collection) > minsize else ''
-    button.state([f'{state}disabled'])
+    state = TTK_ENABLED if len(collection) > minsize else tk.DISABLED
+    button.state([state])
 
 
 class TkVarMetadata:
@@ -589,8 +625,16 @@ def create_multi_field(master, label, sequence, row):
 
 class SongPartUI:
 
-    def __init__(self, master, row, nb: ttk.Notebook, index: int):
+    def __init__(
+        self,
+        master,
+        row,
+        nb: ttk.Notebook,
+        index: int,
+        use_json: tk.BooleanVar
+    ):
         self.panel = tk.Frame(master)
+        self.use_json = use_json
 
         self.create_description_panel(nb, index)
         self.variant_panel, self.variants = self.create_track_panel(
@@ -626,17 +670,17 @@ class SongPartUI:
             nb.tab(index + 1, text=self.part_name.get() or "<untitled>")
 
         self.part_name = tk.StringVar(self.panel)
-        name_entry = create_field(
+        self.part_name_entry = create_field(
             master,
             'Part name:',
             self.part_name,
             1
         )
-        name_entry.bind("<FocusOut>", set_widget_name)
+        self.part_name_entry.bind("<FocusOut>", set_widget_name)
 
     def create_filename_field(self, master):
         self.filename = tk.StringVar(self.panel)
-        create_field(master, 'Filename:', self.filename, 2)
+        self.filename_field = create_field(master, 'Filename:', self.filename, 2)
 
     def create_metadata_button(self, master):
         button = ttk.Button(
@@ -664,18 +708,26 @@ class SongPartUI:
         description,
         row,
         minlength
-    ):
+    ) -> Tuple[tk.Widget, Sequence['SongPartUI.TrackFields']]:
         panel = tk.LabelFrame(self.panel, text=f'{label}s')
         tracks = []
 
         tk.Label(panel, text=description).grid(row=0, columnspan=2)
         self.create_table_header(label, panel)
         add_button, remove_button = self.create_track_buttons(
-            minlength, panel, tracks)
+            minlength,
+            panel,
+            tracks
+        )
         self.grid_buttons(add_button, remove_button, tracks, minlength)
         for _ in range(minlength):
-            self.push_field(panel, tracks, add_button,
-                            remove_button, minlength)
+            self.push_field(
+                panel,
+                tracks,
+                add_button,
+                remove_button,
+                minlength
+            )
 
         panel.columnconfigure(0, weight=1)
         panel.columnconfigure(1, weight=1)
@@ -693,12 +745,21 @@ class SongPartUI:
         add_button = ttk.Button(
             panel,
             command=lambda: self.push_field(
-                panel, tracks, add_button, remove_button, minlength),
+                panel,
+                tracks,
+                add_button,
+                remove_button,
+                minlength
+            ),
             text="+")
         remove_button = ttk.Button(
             panel,
             command=lambda: self.pop_field(
-                tracks, add_button, remove_button, minlength),
+                tracks,
+                add_button,
+                remove_button,
+                minlength
+            ),
             text="-")
 
         return add_button, remove_button
@@ -709,19 +770,29 @@ class SongPartUI:
         remove.grid(row=row, column=1, sticky="EW")
         disable_for_size(remove, collection, minsize)
 
-    def push_field(self,
-                   panel: tk.PanedWindow,
-                   rowdata: Sequence[tuple],
-                   addbutton: ttk.Button,
-                   removebutton: ttk.Button,
-                   minsize: int
-                   ):
+    class TrackFields(NamedTuple):
+        name: str
+        url: str
+        name_entry: tk.Entry
+        url_entry: tk.Entry
+
+    def push_field(
+        self,
+        panel: tk.PanedWindow,
+        rowdata: Sequence['SongPartUI.TrackFields'],
+        addbutton: ttk.Button,
+        removebutton: ttk.Button,
+        minsize: int
+    ):
         name = tk.StringVar(panel)
         url = tk.StringVar(panel)
         row = len(rowdata) + 2
         nfield = self.create_track_entry(panel, name, row, 0)
+        nfield.configure(
+            state=tk.NORMAL if self.use_json.get() else tk.DISABLED
+        )
         ufield = self.create_track_entry(panel, url, row, 1)
-        rowdata.append((name, url, nfield, ufield))
+        rowdata.append(SongPartUI.TrackFields(name, url, nfield, ufield))
 
         self.grid_buttons(addbutton, removebutton, rowdata, minsize)
 
@@ -730,12 +801,13 @@ class SongPartUI:
         entry.grid(row=row, column=column, sticky="EW")
         return entry
 
-    def pop_field(self,
-                  rowdata: Sequence[tuple],
-                  addbutton: ttk.Button,
-                  removebutton: ttk.Button,
-                  requirement: int
-                  ):
+    def pop_field(
+        self,
+        rowdata: Sequence[tuple],
+        addbutton: ttk.Button,
+        removebutton: ttk.Button,
+        requirement: int
+    ):
         item = rowdata.pop()
         self.grid_buttons(addbutton, removebutton, rowdata, requirement)
         for i in item[2:4]:
@@ -758,8 +830,8 @@ class SongPartUI:
             self.part_name.get(),
             self.filename.get(),
             self.metadata.to_get_brstm_meta(),
-            [SongTrackURL(var[0], var[1]) for var in self.get_variants()],
-            [SongTrackURL(lay[0], lay[1]) for lay in self.get_layers()]
+            [SongTrackURL(*var) for var in self.get_variants()],
+            [SongTrackURL(*lay) for lay in self.get_layers()]
         )
 
 

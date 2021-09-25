@@ -3,7 +3,7 @@
 A music player that can play video game music that loops continuously. Also supports songs with multiple parts as well as variable mixing.
 
 ## Using
-Navigate to the top level directory, then `pip`/`pip3`/`python -m pip install .`
+Navigate to the top level directory of the repo, then `pip`/`pip3`/`python -m pip install .`
 With the module installed:
 - To simply play a song: `python`/`python3 -m loopaudio path/to/file/or/json`
 - For the GUI: `python`/`python3 -m loopaudio.gui`
@@ -14,7 +14,7 @@ When you open the player, your first step is the 'File' pane. You can open any c
 When pressing the 'Load' button, one or more options just below the file selector will appear with the song's parts. Each part is a separate loop, and the current part can be changed at any time. When selecting a part, it will start playing immediately and populate the 'Variants' and 'Layers' panels. In those panels, you can select which variant to play as well as which layers (if any) to play on top. These variants and layers can be changed on the fly as the song plays to emulate the dynamic mixing some games employ. The slider below the variants and layers will change the volume of the song. To stop playback, you can press the 'Stop' button next to the part buttons, or you may select a different part's button to immediately start playing it instead.
 
 ### Smash Custom Music archive
-You can press the button at the very bottom of the window to open the GUI to import BRSTM files from [the archive of Smash Custom Music](https://web.archive.org/web/20190619095108/https://www.smashcustommusic.com/gamelist) as playable songs. From there you can start again with the 'File' panel by entering a path for a JSON file for the song's data. The next row contains both the 'Start conversion' button and a 'Use JSON' checkbox. The latter doesn't do anything yet.
+You can press the button at the very bottom of the window to open the GUI to import BRSTM files from [the archive of Smash Custom Music](https://web.archive.org/web/20190619095108/https://www.smashcustommusic.com/gamelist) as playable songs. From there you can start again with the 'File' panel by entering a path for a JSON file for the song's data. The next row contains both the 'Start conversion' button and a 'Use JSON' checkbox. More on the checkbox later.
 
 The tabbed pane is where you manage each part of the song. If your song only has one part to it—that is, there's only one loop associated with it and it isn't meant to transition to something else—you can ignore the 'Manage parts' tab. Otherwise, that's where you can add and remove tabs and by extension parts to your song.
 
@@ -22,7 +22,9 @@ The 'Information' panel contains basic facts about the song, including its title
 
 The 'Variants' and 'Layers' panels are where the magic happens. Just name each variant or layer in the left column and link its page (not the file itself) in the right. The import wizard web-scrapes to get the information it needs, so using any page other than a Smash Custom Music page [like this one](https://web.archive.org/web/20190617173638/https://www.smashcustommusic.com/45669) will almost certainly break it.
 
-Finally, just press the 'Start conversion' button at the top and the program should import the song as one JSON file and at least one audio file.
+Moving back to the 'Use JSON' checkbox, you can disable it to only download a single sound file. Since there's no information to link the song parts together, you will be unable to create a song with more than one part. Likewise, the part name and filename fields in the part menu will also be disabled (the filename for the single sound file should be entered into where the JSON filename would be normally). The JSON file also stores the names and types of the variants and layers, so the name fields will be disabled, and loading the song back up will open every track as a layer.
+
+Finally, just press the 'Start conversion' button at the top and the program should import the song as at least one audio file and an optional JSON file.
 
 ### Playing Programatically
 
