@@ -41,6 +41,9 @@ class Metadata(NamedTuple):
         return Metadata(*(s or b for s, b in zip(self, base)))
 
 
+intermediary_format = 'wav'
+
+
 class SongPart(NamedTuple):
     """A record of a song part to be downloaded."""
 
@@ -60,7 +63,14 @@ class SongPart(NamedTuple):
 
         return next(self.iter_tracks()).url
 
-    def with_fields(self, name=..., file=..., meta=..., variants=..., layers=...):
+    def with_fields(
+        self,
+        name=...,
+        file=...,
+        meta=...,
+        variants=...,
+        layers=...
+    ):
         return SongPart(
             self.name if name is Ellipsis else name,
             self.file if file is Ellipsis else file,
@@ -237,10 +247,11 @@ def download_and_convert_brstms(
     file_path: PurePath,
     songinfo: SongPart
 ) -> tuple[Mapping[str, int], ...]:
-    """Download the BRSTM files for a song part and copy them into FLAC files.
+    """Download the BRSTM files for a song part and copy them into intermediary
+    (default WAV) files.
     
     The returned tuple is a pair of mappings that map a track's name to the
-    number of the FLAC file into which it was saved. The first is the part's 
+    number of the sound file into which it was saved. The first is the part's 
     variants, the second its layers."""
 
     print('Downloading BRSTM files...')
@@ -256,7 +267,7 @@ def download_tracks(
     tracklist: Sequence[SongTrackURL],
     start: int = 0
 ) -> Mapping[str, int]:
-    """Download a set of track BRSTMs and covert them into FLAC files.
+    """Download a set of track BRSTMs and covert them into intermediary files.
     
     The returned mapping maps the tracks' names to the number of the file into
     which it was saved."""
@@ -287,11 +298,11 @@ def download_brstm(soup: BeautifulSoup, path: PurePath) -> None:
 
 
 def convert_brstm(path: Path, number: int) -> PurePath:
-    """Convert a BRSTM file to a numbered FLAC file, and return the path to that
-    file."""
+    """Convert a BRSTM file to a numbered intermediary file, and return the path
+    to that file."""
 
     inpath = path.with_suffix('.brstm')
-    outpath = path.with_name(f'{path.stem}-{number}.flac')
+    outpath = path.with_name(f'{path.stem}-{number}.{intermediary_format}')
     ffmpeg.input(str(inpath)).output(str(outpath)).run(overwrite_output=True)
     inpath.unlink()
     return outpath
@@ -306,7 +317,11 @@ def list_track_files(
 
     tracklists = map(Mapping.values, tracklists)
     tracklist = itertools.chain.from_iterable(tracklists)
-    return [sf.SoundFile(file_path.with_name(f'{file_path.stem}-{n}.flac')) for n in tracklist]
+    return [
+        sf.SoundFile(
+            file_path.with_name(f'{file_path.stem}-{n}.{intermediary_format}'
+        )
+    ) for n in tracklist]
 
 
 def create_multitrack_file(
@@ -337,8 +352,7 @@ def create_sound_file(
         file_path,
         mode='w',
         samplerate=samplerate,
-        channels=(len(songinfo.variants) + len(songinfo.layers)) * 2,
-        format='OGG'
+        channels=(len(songinfo.variants) + len(songinfo.layers)) * 2
     )
 
 
