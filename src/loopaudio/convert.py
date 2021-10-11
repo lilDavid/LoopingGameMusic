@@ -2,7 +2,7 @@ import itertools
 import json
 from collections.abc import Mapping, Sequence
 from pathlib import Path, PurePath
-from typing import Iterable, Iterator, NamedTuple, Optional, Union
+from typing import Callable, Generator, Iterable, Iterator, NamedTuple, TypeVar, Union
 
 import ffmpeg
 import mutagen
@@ -80,30 +80,82 @@ class SongPart(NamedTuple):
         )
 
 
+class ConversionStep:
+
+    class Progress:
+        def __init__(self, generator):
+            self.result = None
+            self.generator = generator
+        
+        def __iter__(self):
+            return self
+
+        def __next__(self) -> str:
+            try:
+                return next(self.generator)
+            except StopIteration as e:
+                self.result = e.args[0] if e.args else None
+                raise
+
+    def __init__(self, function):
+        self.function = function
+    
+    def __call__(self, *args, **kwargs) -> 'ConversionStep.Progress':
+        return self.Progress(self.function(*args, **kwargs))
+
+
+def _none_to_callable(call):
+    if call is None:
+        def call():
+            pass
+    return call
+
+
 def create_song(
     json_file: Union[str, PurePath],
-    info: Union[SongPart, Iterable[SongPart]]
+    info: Union[SongPart, Iterable[SongPart]],
+    callback: Callable = None
 ) -> None:
     """Download a song from SmashCustomMusic and save a JSON file about it to
     the given location."""
 
+    callback = _none_to_callable(callback)
     json_path = Path(json_file)
     create_directory_for_file(json_path)
-    parts = create_song_parts(json_path, info)
+    progress = _create_song_generator(json_path, info)
+    for step in progress:
+        callback(step)
+
+
+@ConversionStep
+def _create_song_generator(
+    path: Path,
+    info: Union[SongPart, Iterable[SongPart]]
+):
+    """Create a generator that downloads a song from SmashCustomMusic and yields
+    tuples of messages about what it's doing."""
+
+    part_creation = create_song_parts(path, info)
+    yield from part_creation
+    parts = part_creation.result
     parts = parts[0] if len(parts) == 1 else parts
-    json.dump(parts, open(json_file, "w"))
+    yield "Creating JSON file",
+    json.dump(parts, open(path, "w"))
 
 
 def create_song_audio_only(
     file_path: Union[str, PurePath],
-    info: SongPart
+    info: SongPart,
+    callback: Callable = None
 ) -> None:
     """Download a song from SmashCustomMusic."""
-    
+
+    callback = _none_to_callable(callback)
     path = Path(file_path)
     info = info.with_fields(file=path.name)
     create_directory_for_file(path)
-    create_part(path, info)
+    for step in create_part(path, info):
+        callback(step)
 
 
 def create_directory_for_file(file: Path) -> None:
@@ -120,41 +172,59 @@ def create_directory_for_file(file: Path) -> None:
         ) from e
 
 
+@ConversionStep
 def create_song_parts(
     file_path: PurePath,
     info: Union[SongPart, Iterable[SongPart]],
 ) -> Sequence[Mapping]:
     """Download the parts for a song and return information about said song.
-    
+
     The returned sequence of mappings is in the format the looping program uses
     in its JSON files."""
 
     if isinstance(info, SongPart):
-        return [create_part(file_path, info)]
+        part_building = create_part(file_path, info)
+        yield from part_building
+        return [part_building.result]
     else:
-        return [create_part(file_path, songinfo) for songinfo in info]
+        parts = []
+        for songinfo in info:
+            part_building = create_part(file_path, songinfo)
+            yield from part_building
+            parts.append(part_building.result)
+        return parts
 
 
+@ConversionStep
 def create_part(
     file_path: PurePath,
     songinfo: SongPart
 ) -> Mapping:
     """Download one part of a song and return information about it.
-    
+
     The returned mapping is in the format the program uses for its JSON data."""
 
+    part_message = f"Downloading part: {songinfo.name}"
+
+    yield part_message, f"Reading file information"
     metadata = get_file_information(songinfo)
 
-    variant_map, layer_map = download_and_convert_brstms(file_path, songinfo)
+    downloading_progress = download_and_convert_brstms(file_path, songinfo)
+    yield from downloading_progress
+    variant_map, layer_map = downloading_progress.result
+
+    yield part_message, "Indexing track files"
     files = list_track_files(file_path, variant_map, layer_map)
 
     try:
-        song_file_path = create_multitrack_file(
+        file_conversion_progress = create_multitrack_file(
             file_path,
             songinfo,
             metadata,
             files
         )
+        yield from file_conversion_progress
+        song_file_path = file_conversion_progress.result
     except RuntimeError as e:
         raise ValueError(
             f"Invalid sound file: '{songinfo.file}'\n" +
@@ -162,6 +232,8 @@ def create_part(
         ) from e
     finally:
         remove_and_close(files)
+    
+    yield part_message, "Adding metadata"
     add_metadata(metadata, song_file_path)
 
     return {
@@ -176,7 +248,7 @@ def create_part(
 def get_file_information(songpart: SongPart) -> Metadata:
     """Extract needed information on a song part from Smash Custom Music and
     return it as a Metadata tuple.
-    
+
     In addition to the tags in the original SongPart's metadata field, the
     returned tuple will have the file's sample rate filled and may have its loop
     points and other tags filled if present on the song's page and not filled in
@@ -190,7 +262,7 @@ def get_file_information(songpart: SongPart) -> Metadata:
 def get_brstm_info_table(url: str) -> BeautifulSoup:
     """Open and return an HTML parser for the provided page (assumed to be on
     Smash Custom Music) and navigate it to the BRSTM info table.
-    
+
     Said table contains metadata describing the song's format and loop
     information, as well as its title and game of origin."""
 
@@ -211,11 +283,11 @@ def open_page(url) -> BeautifulSoup:
 
 def get_metadata_from_table(table: BeautifulSoup) -> Metadata:
     """Extract a song part's metadata from its table on Smash Custom Music.
-    
+
     The returned Metadata tuple will have its sample rate, title, and game
     fields filled, and it may have the loop information and other tags filled
     if present in the table."""
-    
+
     game = get_multiple_values(table[1])
     title = table[3].text.strip()
     if table[31].text == 'Song Does Not Loop':
@@ -233,9 +305,10 @@ def get_metadata_from_table(table: BeautifulSoup) -> Metadata:
         samplerate=samplerate
     )
 
+
 def get_multiple_values(table_cell: BeautifulSoup):
     """Extract multiple values (read: game appearances) from a table cell.
-    
+
     Each value must be in its own <a> tag or they'll be read as a single value
     together. That is to say, this is designed solely to extract game titles
     (which are always linked) from the table."""
@@ -243,37 +316,56 @@ def get_multiple_values(table_cell: BeautifulSoup):
     return [item.text.strip() for item in table_cell.find_all('a')]
 
 
+@ConversionStep
 def download_and_convert_brstms(
     file_path: PurePath,
-    songinfo: SongPart
+    partinfo: SongPart
 ) -> tuple[Mapping[str, int], ...]:
     """Download the BRSTM files for a song part and copy them into intermediary
     (default WAV) files.
-    
+
     The returned tuple is a pair of mappings that map a track's name to the
     number of the sound file into which it was saved. The first is the part's 
     variants, the second its layers."""
 
-    print('Downloading BRSTM files...')
+    progress = download_tracks(
+        file_path,
+        partinfo.variants,
+        part_name=partinfo.name
+    )
+    yield from progress
+    variants = progress.result
 
-    variants = download_tracks(file_path, songinfo.variants)
-    layers = download_tracks(file_path, songinfo.layers, len(variants))
+    progress = download_tracks(
+        file_path,
+        partinfo.layers,
+        start=len(variants),
+        part_name=partinfo.name
+    )
+    yield from progress
+    layers = progress.result
 
     return variants, layers
 
 
+@ConversionStep
 def download_tracks(
     file_path: PurePath,
     tracklist: Sequence[SongTrackURL],
-    start: int = 0
+    start: int = 0,
+    part_name: str = ""
 ) -> Mapping[str, int]:
     """Download a set of track BRSTMs and covert them into intermediary files.
-    
+
     The returned mapping maps the tracks' names to the number of the file into
     which it was saved."""
 
     track_map = {}
     for i, track in enumerate(tracklist, start):
+        yield (
+            f"Downloading part: {part_name}",
+            f"Downloading track: {track.name}"
+        )
         soup = open_page(track.url)
         download_brstm(soup, file_path)
         convert_brstm(file_path, i)
@@ -288,7 +380,6 @@ def download_brstm(soup: BeautifulSoup, path: PurePath) -> None:
     soup = soup.find(id="brstmdl")
     soup = soup.find_all("a")[0]
     brstm_link = "https://web.archive.org/" + soup.attrs["href"]
-    print("Downloading file: " + brstm_link)
     with requests.get(brstm_link, stream=True) as request:
         request.raise_for_status()
 
@@ -320,10 +411,11 @@ def list_track_files(
     return [
         sf.SoundFile(
             file_path.with_name(f'{file_path.stem}-{n}.{intermediary_format}'
-        )
-    ) for n in tracklist]
+                                )
+        ) for n in tracklist]
 
 
+@ConversionStep
 def create_multitrack_file(
     json_path: PurePath,
     songinfo: SongPart,
@@ -333,11 +425,15 @@ def create_multitrack_file(
     """Create a final multi-track song part file and return the path to it."""
 
     song_path = json_path.parent / songinfo.file
+    yield (
+        f"Downloading part: {songinfo.name}",
+        f"Merging into file: {song_path}"
+    )
     songfile = create_sound_file(song_path, songinfo, metadata.samplerate)
     merge_sound_files(files, songfile)
     lengthen_file_if_needed(metadata, files, songfile)
     songfile.close()
-    
+
     return song_path
 
 
@@ -362,13 +458,12 @@ def merge_sound_files(
 ) -> None:
     """Copy the data from each of the separate sound files into the single
     sound file.
-    
+
     The single file must have enough tracks to fit the data from all of the
     files at once."""
 
     datasize = 1
     chunk_size = 8192
-    print('Copying audio data...')
     while datasize:
         datasize = copy_chunk(single_file, separate_files, chunk_size)
 
@@ -381,7 +476,6 @@ def lengthen_file_if_needed(
     # Workaround to a problem where the file dies while
     # looping because it loses some data when seeking
     if songfile.frames - metadata.loop_end < 2048:
-        print('Padding file at the end...')
         for file in files:
             file.seek(metadata.loop_start)
         copy_chunk(songfile, files, 2048)
@@ -406,7 +500,7 @@ def copy_chunk(
     The amount of data copied will be less than or equal to the value of the
     the size parameter. If the input files are close to their end, then the
     function will copy all that's left; otherwise, *size* frames will be copied.
-    
+
     The input file must have enough tracks to fit each of the output files."""
 
     data = read_chunk(output_file, input_files, size)
@@ -422,7 +516,7 @@ def read_chunk(
 ) -> np.ndarray:
     """Read chunk of *size* frames from each of the input files and stack them
     all into an array, and then return that array.
-    
+
     The length of that array will be less than *size* if the input files are all
     read to their end; otherwise, it will be equal to *size*. The height will be
     the number of channels in the output file."""
@@ -439,8 +533,6 @@ def read_chunk(
 def add_metadata(metadata: Metadata, file_path: PurePath) -> None:
     """Add metadata to a sound file."""
 
-    print('Metadata...')
-
     tags = mutagen.File(file_path)
     tags['title'] = [metadata.title]
     tags['artist'] = wrap_string(metadata.artist)
@@ -455,7 +547,7 @@ def add_metadata(metadata: Metadata, file_path: PurePath) -> None:
 
 def wrap_string(
     value: Union[str, Sequence[str], None]
-) -> Optional[Sequence[str]]:
+) -> Sequence[str]:
     """Wrap the value in a list. None becomes an empty list, a string is
     wrapped a list, and any other sequence is returned as it was passed."""
 

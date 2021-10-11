@@ -482,7 +482,8 @@ class SCMImportGUI:
             if self.use_json.get():
                 create_song(
                     self.file_name.get(),
-                    [part.create_song_info() for part in self.parts]
+                    [part.create_song_info() for part in self.parts],
+                    callback=print
                 )
             else:
                 create_song_audio_only(
