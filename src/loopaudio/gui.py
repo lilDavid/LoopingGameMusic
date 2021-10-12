@@ -376,8 +376,9 @@ def dialog_and_print_error(exception, message='An error occurred'):
 
 class SCMImportGUI:
 
-    def __init__(self, master: tk.Tk):
+    def __init__(self, master: tk.Toplevel):
         master.title("SmashCustomMusic import")
+        self.master = master
         self.build_file_panel(master)
         self.initialize_parts(master)
         master.rowconfigure(1, weight=1)
@@ -479,21 +480,100 @@ class SCMImportGUI:
 
     def start_conversion(self):
         try:
+            parts = [part.create_song_info() for part in self.parts]
+            window, callback = self.create_conversion_progress_window(parts)
             if self.use_json.get():
                 create_song(
                     self.file_name.get(),
-                    [part.create_song_info() for part in self.parts],
-                    callback=print
+                    parts,
+                    callback=callback
                 )
             else:
                 create_song_audio_only(
                     self.file_name.get(),
-                    self.parts[0].create_song_info()
+                    parts[0],
+                    callback=callback
                 )
         except Exception as exc:
             dialog_and_print_error(exc, 'Could not create song files')
         else:
             tkinter.messagebox.showinfo(message="Loop created!")
+        finally:
+            window.destroy()
+
+    def create_conversion_progress_window(self, parts: Sequence[SongPart]):
+        window = tk.Toplevel(self.master)
+        window.minsize(320, 1)
+        window.columnconfigure(0, weight=1)
+        window.resizable(False, True)
+        
+        labels = (
+            tuple(4 + len(part.variants) + len(part.layers) for part in parts)
+            + (1,)
+        )
+
+        songlabel = tk.StringVar(window)
+        songprogress = tk.DoubleVar(window)
+        tk.Label(
+            window,
+            textvariable=songlabel,
+            wraplength=320
+        ).grid(row=0, sticky="EW")
+        ttk.Progressbar(
+            window,
+            maximum=len(labels) - 1,
+            mode="determinate",
+            variable=songprogress
+        ).grid(row=1, sticky='EW')
+
+        partlabel = tk.StringVar(window)
+        partprogress = tk.IntVar(window)
+        tk.Label(
+            window,
+            textvariable=partlabel,
+            wraplength=320
+        ).grid(row=2, sticky='EW')
+        partbar = ttk.Progressbar(
+            window,
+            mode="determinate",
+            variable=partprogress
+        )
+        partbar.grid(row=3, sticky="EW")
+
+        bigpart = -1
+        smallpart = 0
+        nsmallparts = 1
+
+        def callback(message):
+            nonlocal partbar, bigpart, smallpart, nsmallparts
+
+            if (len(message) == 2):
+                big, small = message
+            else:
+                big, = message
+                small = ""
+
+            if big != songlabel.get():
+                bigpart += 1
+                smallpart = 0
+
+                songlabel.set(big)
+
+                nsmallparts = labels[bigpart]
+                partbar["maximum"] = nsmallparts
+            else:
+                smallpart += 1
+            
+            partlabel.set(small)
+            partprogress.set(smallpart)
+            songprogress.set(bigpart + smallpart / nsmallparts)
+            print(songprogress.get())
+            
+            print(message)
+            partlabel.set(small)
+            window.update()
+
+        return window, callback
 
     def add_part(self):
         partui = SongPartUI(
