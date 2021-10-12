@@ -2,7 +2,8 @@ import itertools
 import json
 from collections.abc import Mapping, Sequence
 from pathlib import Path, PurePath
-from typing import Callable, Generator, Iterable, Iterator, NamedTuple, TypeVar, Union
+from typing import (Callable, Generator, Iterable, Iterator, NamedTuple, Tuple,
+                    Union)
 
 import ffmpeg
 import mutagen
@@ -81,10 +82,19 @@ class SongPart(NamedTuple):
 
 
 class ConversionStep:
+    """Transform a generator into a step in a BRSTM download.
+
+    A ConversionStep yields tuples of strings and then returns a value. This
+    return value is caught from the resulting StopIteraton exception and
+    then reflected as the value of the returned object's result() method.
+    
+    Calling a ConversionStep returns a ConversionStep.Progress object that wraps
+    the original function's returned generator, though because of its
+    specialized nature, it is not itself a generator. Its result() method raises
+    ValueError until the generator returns."""
 
     class Progress:
         def __init__(self, generator):
-            self.result = None
             self.generator = generator
         
         def __iter__(self):
@@ -94,8 +104,17 @@ class ConversionStep:
             try:
                 return next(self.generator)
             except StopIteration as e:
-                self.result = e.args[0] if e.args else None
+                self._result = e.args[0] if e.args else None
                 raise
+        
+        def result(self):
+            """Return the result of the wrapped generator. If the generator
+            hasn't returned, raises ValueError."""
+
+            try:
+                return self._result
+            except AttributeError:
+                raise ValueError("Generator has not returned")
 
     def __init__(self, function):
         self.function = function
@@ -122,13 +141,13 @@ def create_song(
     callback = _none_to_callable(callback)
     json_path = Path(json_file)
     create_directory_for_file(json_path)
-    progress = _create_song_generator(json_path, info)
+    progress = create_song_generator(json_path, info)
     for step in progress:
         callback(step)
 
 
 @ConversionStep
-def _create_song_generator(
+def create_song_generator(
     path: Path,
     info: Union[SongPart, Iterable[SongPart]]
 ):
@@ -137,7 +156,7 @@ def _create_song_generator(
 
     part_creation = create_song_parts(path, info)
     yield from part_creation
-    parts = part_creation.result
+    parts = part_creation.result()
     parts = parts[0] if len(parts) == 1 else parts
     yield "Creating JSON file",
     json.dump(parts, open(path, "w"))
@@ -176,22 +195,23 @@ def create_directory_for_file(file: Path) -> None:
 def create_song_parts(
     file_path: PurePath,
     info: Union[SongPart, Iterable[SongPart]],
-) -> Sequence[Mapping]:
+) -> Generator[Tuple[str], None, Sequence[Mapping]]:
     """Download the parts for a song and return information about said song.
 
-    The returned sequence of mappings is in the format the looping program uses
-    in its JSON files."""
+    This is a ConversionStep that yields messages about what parts are being
+    created. Its result will be a sequence of mappings in the format the looping
+    program uses in its JSON files."""
 
     if isinstance(info, SongPart):
         part_building = create_part(file_path, info)
         yield from part_building
-        return [part_building.result]
+        return [part_building.result()]
     else:
         parts = []
         for songinfo in info:
             part_building = create_part(file_path, songinfo)
             yield from part_building
-            parts.append(part_building.result)
+            parts.append(part_building.result())
         return parts
 
 
@@ -199,10 +219,12 @@ def create_song_parts(
 def create_part(
     file_path: PurePath,
     songinfo: SongPart
-) -> Mapping:
+) -> Generator[Tuple[str], None, Mapping]:
     """Download one part of a song and return information about it.
 
-    The returned mapping is in the format the program uses for its JSON data."""
+    This is a ConversionStep that yields messages about what parts are being
+    created. Its result will be a mapping in the format the program uses for its
+    JSON data."""
 
     part_message = f"Downloading part: {songinfo.name}"
 
@@ -211,7 +233,7 @@ def create_part(
 
     downloading_progress = download_and_convert_brstms(file_path, songinfo)
     yield from downloading_progress
-    variant_map, layer_map = downloading_progress.result
+    variant_map, layer_map = downloading_progress.result()
 
     yield part_message, "Indexing track files"
     files = list_track_files(file_path, variant_map, layer_map)
@@ -224,7 +246,7 @@ def create_part(
             files
         )
         yield from file_conversion_progress
-        song_file_path = file_conversion_progress.result
+        song_file_path = file_conversion_progress.result()
     except RuntimeError as e:
         raise ValueError(
             f"Invalid sound file: '{songinfo.file}'\n" +
@@ -320,13 +342,14 @@ def get_multiple_values(table_cell: BeautifulSoup):
 def download_and_convert_brstms(
     file_path: PurePath,
     partinfo: SongPart
-) -> tuple[Mapping[str, int], ...]:
+) -> Generator[Tuple[str], None, Tuple[Mapping[str, int], ...]]:
     """Download the BRSTM files for a song part and copy them into intermediary
     (default WAV) files.
 
-    The returned tuple is a pair of mappings that map a track's name to the
-    number of the sound file into which it was saved. The first is the part's 
-    variants, the second its layers."""
+    This is a ConversionStep that yields messages about what parts are being
+    created. Its result will be a pair of mappings that map a track's name to
+    the number of the sound file into which it was saved. The first is the
+    part's variants, the second its layers."""
 
     progress = download_tracks(
         file_path,
@@ -334,7 +357,7 @@ def download_and_convert_brstms(
         part_name=partinfo.name
     )
     yield from progress
-    variants = progress.result
+    variants = progress.result()
 
     progress = download_tracks(
         file_path,
@@ -343,7 +366,7 @@ def download_and_convert_brstms(
         part_name=partinfo.name
     )
     yield from progress
-    layers = progress.result
+    layers = progress.result()
 
     return variants, layers
 
@@ -354,11 +377,12 @@ def download_tracks(
     tracklist: Sequence[SongTrackURL],
     start: int = 0,
     part_name: str = ""
-) -> Mapping[str, int]:
+) -> Generator[Tuple[str], None, Mapping[str, int]]:
     """Download a set of track BRSTMs and covert them into intermediary files.
 
-    The returned mapping maps the tracks' names to the number of the file into
-    which it was saved."""
+    This is a ConversionStep that yields messages about what parts are being
+    created. Its result will be a mapping that maps the tracks' names to the
+    number of the file into which it was saved."""
 
     track_map = {}
     for i, track in enumerate(tracklist, start):
@@ -421,8 +445,11 @@ def create_multitrack_file(
     songinfo: SongPart,
     metadata: Metadata,
     files: Iterable[sf.SoundFile]
-) -> PurePath:
-    """Create a final multi-track song part file and return the path to it."""
+) -> Generator[Tuple[str], None, PurePath]:
+    """Create a final multi-track song part file and return the path to it.
+    
+    This is a ConversionStep that yields messages about what parts are being
+    created. Its result will be the aforementioned path object."""
 
     song_path = json_path.parent / songinfo.file
     yield (
