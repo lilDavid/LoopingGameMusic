@@ -39,7 +39,7 @@ class Metadata(NamedTuple):
         """Return the union of this and the supplied Metadata object. Any fields
         shared between the two will have this object's value."""
 
-        return Metadata(*(s or b for s, b in zip(self, base)))
+        return Metadata(*((b if s is None else s) for s, b in zip(self, base)))
 
 
 intermediary_format = 'wav'
