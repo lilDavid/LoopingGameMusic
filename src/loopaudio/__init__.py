@@ -819,24 +819,19 @@ def _get_song_part(path: PurePath, partjson: Mapping):
     loopstart, loopend = _get_loop_data(partjson, tags)
     part_name = partjson.get('name', 'Play')
 
-    return [
-        lambda: _get_classic_loop(
-            path,
-            partjson,
-            song_tags,
-            loopstart,
-            loopend,
-            part_name
-        ),
-        lambda: _get_multitrack_loop(
-            partjson,
-            file,
-            song_tags,
-            loopstart,
-            loopend,
-            part_name
-        )
-    ][partjson.get('version', 1) - 1]()
+    try:
+        return [
+            lambda: _get_multitrack_loop(
+                partjson,
+                file,
+                song_tags,
+                loopstart,
+                loopend,
+                part_name
+            )
+        ][partjson.get('version', 2) - 2]()
+    except IndexError:
+        raise ValueError(f'Invalid version number: {partjson["version"]}')
 
 
 def _get_main_filename(path: PurePath, partjson: Mapping):
@@ -865,35 +860,6 @@ def _get_loop_data(partjson, tags):
     except KeyError:
         pass
     return loopstart, loopend
-
-
-def _get_classic_loop(
-    path: PurePath,
-    partjson: Mapping,
-    song_tags,
-    loopstart,
-    loopend,
-    part_name
-):
-    return MultiFileLoop(
-        song_tags,
-        part_name,
-        _get_classic_tracks(path, partjson, 'variants'),
-        _get_classic_tracks(path, partjson, 'layers'),
-        loopstart,
-        loopend
-    )
-
-
-def _get_classic_tracks(path: PurePath, partjson: Mapping, key):
-    tracks = {}
-    for variant in partjson.get(key, ()):
-        var_name = '-' + variant if variant else ''
-        tracks[variant] = sf.SoundFile(
-            f'{path.parent / path.stem}{var_name}.'
-            + partjson.get("filetype", "wav")
-        )
-    return tracks
 
 
 def _get_multitrack_loop(

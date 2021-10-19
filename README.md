@@ -81,7 +81,7 @@ The breakdown of which is as follows.
 This will be either a single object describing one part, or a list of the same to make multiple parts.
 
 #### Part data
-- **version**: The version of the reader to use. For the foreseeable future this will be 2, as 1 was obsolete before I published this on GitHub.
+- **version**: The version of the reader to use. The current version and default is 2. In case you're wondering, version 1 was used before this project was published and no longer exists.
 - **name**: The name for this part. Separate from the title, it should be short and descriptive of its relation to the whole song. If the song only has one part, you don't need to specify this, but it would be a good idea if it has multiple.
 - **title**: The title of the song. Overrides the file's Title tag if it has one, but if neither is specified the player will display the filename.
 - ••filename**: The location of the file relative to this JSON file.
