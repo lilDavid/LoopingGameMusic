@@ -5,7 +5,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import PurePath
 from threading import Event, Thread
-from typing import Any, Callable, Mapping, MutableSequence, NamedTuple, Union
+from typing import Any, Callable, Mapping, MutableSequence, Union
 
 import mutagen
 import numpy as np
@@ -13,7 +13,8 @@ import sounddevice as sd
 import soundfile as sf
 
 
-class LoopPoints(NamedTuple):
+@dataclass
+class LoopPoints:
     """A song part's loop points. The song will play to *start* samples, then
     play the section from *start* to *end* samples indefinitely."""
 
@@ -21,7 +22,7 @@ class LoopPoints(NamedTuple):
     end: int
 
 
-@dataclass(init=True, repr=True)
+@dataclass
 class TrackState:
     """The enabled/disabled state of a track.
 
@@ -95,7 +96,7 @@ class SoundLoopPlayback:
             self.current_frame += chunksize
 
 
-@dataclass(repr=True)
+@dataclass(init=False)
 class SongTags:
     """Tag data for a song, consisting of info used to identify the song and its
     source, but not necessary for playback.
