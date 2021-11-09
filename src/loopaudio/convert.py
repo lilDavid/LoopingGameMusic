@@ -2,8 +2,8 @@ import itertools
 import json
 from collections.abc import Mapping, Sequence
 from pathlib import Path, PurePath
-from typing import (Callable, Generator, Iterable, Iterator, NamedTuple, Tuple,
-                    Union)
+from typing import Callable, Generator, Iterable, Iterator, Tuple, Union
+from dataclasses import dataclass
 
 import ffmpeg
 import mutagen
@@ -14,14 +14,16 @@ from bs4 import BeautifulSoup
 from babel.numbers import parse_number as parse_int
 
 
-class SongTrackURL(NamedTuple):
+@dataclass(frozen=True)
+class SongTrackURL:
     """Information about a track needed to import it from Smash Custom Music"""
 
     name: str
     url: str
 
 
-class Metadata(NamedTuple):
+@dataclass
+class Metadata:
     """Metadata for a song to be downloaded, including loop data, sample rate,
     and tags."""
 
@@ -35,7 +37,7 @@ class Metadata(NamedTuple):
     loop_end: int = None
     samplerate: int = None
 
-    def override(self, base):
+    def join(self, base):
         """Return the union of this and the supplied Metadata object. Any fields
         shared between the two will have this object's value."""
 
@@ -45,7 +47,8 @@ class Metadata(NamedTuple):
 intermediary_format = 'wav'
 
 
-class SongPart(NamedTuple):
+@dataclass
+class SongPart:
     """A record of a song part to be downloaded."""
 
     name: str
@@ -171,7 +174,7 @@ def create_song_audio_only(
 
     callback = _none_to_callable(callback)
     path = Path(file_path)
-    info = info.with_fields(file=path.name)
+    info.file = path.name
     create_directory_for_file(path)
     for step in create_part(path, info):
         callback(step)
@@ -229,7 +232,7 @@ def create_part(
     part_message = f"Downloading part: {songinfo.name}"
 
     yield part_message, f"Reading file information"
-    metadata = get_file_information(songinfo)
+    songinfo.meta = get_file_information(songinfo)
 
     downloading_progress = download_and_convert_brstms(file_path, songinfo)
     yield from downloading_progress
@@ -242,7 +245,6 @@ def create_part(
         file_conversion_progress = create_multitrack_file(
             file_path,
             songinfo,
-            metadata,
             files
         )
         yield from file_conversion_progress
@@ -256,7 +258,7 @@ def create_part(
         remove_and_close(files)
     
     yield part_message, "Adding metadata"
-    add_metadata(metadata, song_file_path)
+    add_metadata(songinfo.meta, song_file_path)
 
     return {
         "version": 2,
@@ -278,7 +280,7 @@ def get_file_information(songpart: SongPart) -> Metadata:
 
     infotable = get_brstm_info_table(songpart.first_url())
     metadata = get_metadata_from_table(infotable)
-    return songpart.meta.override(metadata)
+    return songpart.meta.join(metadata)
 
 
 def get_brstm_info_table(url: str) -> BeautifulSoup:
@@ -442,8 +444,7 @@ def list_track_files(
 @ConversionStep
 def create_multitrack_file(
     json_path: PurePath,
-    songinfo: SongPart,
-    metadata: Metadata,
+    partinfo: SongPart,
     files: Iterable[sf.SoundFile]
 ) -> Generator[Tuple[str], None, PurePath]:
     """Create a final multi-track song part file and return the path to it.
@@ -451,14 +452,14 @@ def create_multitrack_file(
     This is a ConversionStep that yields messages about what parts are being
     created. Its result will be the aforementioned path object."""
 
-    song_path = json_path.parent / songinfo.file
+    song_path = json_path.parent / partinfo.file
     yield (
-        f"Downloading part: {songinfo.name}",
+        f"Downloading part: {partinfo.name}",
         f"Merging into file: {song_path}"
     )
-    songfile = create_sound_file(song_path, songinfo, metadata.samplerate)
+    songfile = create_sound_file(song_path, partinfo, partinfo.meta.samplerate)
     merge_sound_files(files, songfile)
-    lengthen_file_if_needed(metadata, files, songfile)
+    lengthen_file_if_needed(partinfo.meta, files, songfile)
     songfile.close()
 
     return song_path

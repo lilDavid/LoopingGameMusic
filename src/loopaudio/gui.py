@@ -4,8 +4,9 @@ import tkinter as tk
 import tkinter.filedialog
 import tkinter.messagebox
 import traceback
+from dataclasses import dataclass
 from tkinter import ttk
-from typing import NamedTuple, Sequence, Sized, Tuple
+from typing import Sequence, Sized, Tuple
 
 import loopaudio as la
 from loopaudio.convert import (Metadata, SongPart, SongTrackURL, create_song,
@@ -26,7 +27,8 @@ class SongProgressUpdater:
         self.bar["value"] = 0
 
     def update(self):
-        progress = int(self.song.position / len(self.song) * self.bar["maximum"])
+        progress = (int(self.song.position / len(self.song)
+            * self.bar["maximum"]))
         if progress != self.val:
             self.bar["value"] = progress
             self.val = progress
@@ -252,7 +254,8 @@ class LoopGUI:
     def song_part_record(self, partlist, num: int, part: la.SongPart):
         button = ttk.Button(
             master=self.song_part_panel,
-            text=part.name or ('Play' if len(partlist) == 1 else f'Part {num + 1}'),
+            text=part.name
+                or ('Play' if len(partlist) == 1 else f'Part {num + 1}'),
             command=lambda: self.play_song_part(num)
         )
         button.pack(side=tk.LEFT)
@@ -401,7 +404,8 @@ class SCMImportGUI:
         manage = tk.Frame(self.part_ui)
         tk.Label(
             manage,
-            text="Each part is a separate loop with its own variants and layers."
+            text="Each part is a separate loop with its own variants and "
+                + "layers."
         ).pack(side="top")
 
         self.add_part_button = self.create_part_button(
@@ -701,7 +705,8 @@ class EditableListEntry:
 
 def create_multi_field(master, label, sequence, row):
     tk.Label(master, text=label).grid(row=row, column=0, sticky='N')
-    EditableListEntry(master, sequence).frame.grid(row=row, column=1, sticky='NSEW')
+    EditableListEntry(master, sequence
+        ).frame.grid(row=row, column=1, sticky='NSEW')
 
 
 class SongPartUI:
@@ -720,13 +725,15 @@ class SongPartUI:
         self.create_description_panel(nb, index)
         self.variant_panel, self.variants = self.create_track_panel(
             label='Variant',
-            description='Different versions of the same song. Only one plays at at time.',
+            description='Different versions of the same song. Only one plays at'
+                + ' a time.',
             row=3,
             minlength=1
         )
         self.layer_panel, self.layers = self.create_track_panel(
             label='Layer',
-            description='Any combination of layers may play over the selected variant.',
+            description='Any combination of layers may play over the selected'
+                + 'variant.',
             row=4,
             minlength=0
         )
@@ -761,7 +768,12 @@ class SongPartUI:
 
     def create_filename_field(self, master):
         self.filename = tk.StringVar(self.panel)
-        self.filename_field = create_field(master, 'Filename:', self.filename, 2)
+        self.filename_field = create_field(
+            master,
+            label='Filename:',
+            variable=self.filename,
+            row=2
+        )
 
     def create_metadata_button(self, master):
         button = ttk.Button(
@@ -851,7 +863,8 @@ class SongPartUI:
         remove.grid(row=row, column=1, sticky="EW")
         disable_for_size(remove, collection, minsize)
 
-    class TrackFields(NamedTuple):
+    @dataclass
+    class TrackFields:
         name: str
         url: str
         name_entry: tk.Entry
