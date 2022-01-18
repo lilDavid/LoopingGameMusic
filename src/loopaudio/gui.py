@@ -91,7 +91,7 @@ class LoopGUI:
                 tkinter.filedialog.askopenfilename(
                     initialdir=sys.path[0],
                     defaultextension="json",
-                    filetypes=[("JSON files", "json")]
+                    filetypes=[("JSON files", "json"), ("OGG files", "ogg")]
                 )
             )
 

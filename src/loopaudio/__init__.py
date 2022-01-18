@@ -3,7 +3,7 @@ import queue as q
 from abc import ABC, abstractmethod
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from pathlib import PurePath
+from pathlib import Path
 from threading import Event, Thread
 from typing import Any, Callable, Mapping, MutableSequence, Union
 
@@ -795,13 +795,13 @@ def open_song(
 ) -> GameMusic:
     """Open a song and return it a GameMusic object."""
 
-    path = PurePath(filename)
+    path = Path(filename)
     part_list = _create_part_list(path)
     part_list = [_get_song_part(path, partinfo) for partinfo in part_list]
     return GameMusic(part_list, buffersize)
 
 
-def _create_part_list(path: PurePath):
+def _create_part_list(path: Path):
     if path.suffix == '.json':
         file_list = json.load(open(path, 'r'))
         if not isinstance(file_list, Sequence):
@@ -812,7 +812,7 @@ def _create_part_list(path: PurePath):
     return file_list
 
 
-def _get_song_part(path: PurePath, partjson: Mapping):
+def _get_song_part(path: Path, partjson: Mapping):
     file = _get_main_filename(path, partjson)
     tags = mutagen.File(file)
     song_tags = SongTags(tags)
@@ -835,7 +835,8 @@ def _get_song_part(path: PurePath, partjson: Mapping):
         raise ValueError(f'Invalid version number: {partjson["version"]}')
 
 
-def _get_main_filename(path: PurePath, partjson: Mapping):
+def _get_main_filename(path: Path, partjson: Mapping):
+    path = path.expanduser()
     try:
         file = str(path.parent / partjson['filename'])
     except KeyError:
@@ -865,7 +866,7 @@ def _get_loop_data(partjson, tags):
 
 def _get_multitrack_loop(
     partjson: Mapping,
-    path: PurePath,
+    path: Path,
     song_tags,
     loopstart,
     loopend,
