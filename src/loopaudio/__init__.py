@@ -21,6 +21,9 @@ class LoopPoints:
     start: int
     end: int
 
+    def is_invalid(self):
+        return None in (self.start, self.end)
+
 
 @dataclass
 class TrackState:
@@ -58,7 +61,7 @@ class SoundLoop:
         loopend: int = None
     ):
         self.loop = LoopPoints(loopstart, loopend)
-        if None in self.loop:
+        if self.loop.is_invalid():
             self.loop = None
 
         self.data, self.sample_rate = audio_data, sample_rate
@@ -203,7 +206,7 @@ class SongPart(ABC):
         will only play once and not loop."""
 
         self.loop = LoopPoints(start, end)
-        if None in self.loop:
+        if self.loop.is_invalid():
             self.loop = None
             self.read_data = self._get_frames
         else:
